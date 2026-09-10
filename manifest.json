@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "YT Lite",
-  "version": "0.1",
+  "name": "YT Distraction Free",
+  "version": "0.1.0",
   "description": "Minimal YouTube: blocks ads/tracking, comments hidden until you click.",
   "background": { "service_worker": "background.js" },
   "content_scripts": [
