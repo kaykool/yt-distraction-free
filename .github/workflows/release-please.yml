@@ -20,17 +20,20 @@ jobs:
           manifest-file: .release-please-manifest.json
 
       - name: Checkout repository
-        if: ${{ steps.release.outputs.releases_created }}
+        if: ${{ steps.release.outputs.releases_created == 'true' }}
         uses: actions/checkout@v4
 
       - name: Package extension zip
-        if: ${{ steps.release.outputs.releases_created }}
+        if: ${{ steps.release.outputs.releases_created == 'true' }}
         run: |
           zip -r yt-distraction-free.zip manifest.json rules.json start.js comments.js hide.css background.js README.md LICENSE
 
       - name: Upload extension asset to release
-        if: ${{ steps.release.outputs.releases_created }}
+        if: ${{ steps.release.outputs.releases_created == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.release.outputs.tag_name || steps.release.outputs['--tag_name'] }}
         run: |
-          gh release upload ${{ steps.release.outputs.tag_name }} yt-distraction-free.zip
+          if [ -n "$TAG_NAME" ]; then
+            gh release upload "$TAG_NAME" yt-distraction-free.zip --clobber
+          fi
