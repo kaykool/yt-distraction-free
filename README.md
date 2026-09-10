@@ -16,7 +16,7 @@ When inspecting what was actually happening under the hood, modern YouTube runs 
 
 I built **YT Distraction Free** to strip YouTube down to what actually matters: **the video itself**. 
 
-By killing the ambient glow, collapsing sidebar recommendations, blocking telemetry in native C++ network rules, and loading comments strictly on-demand, it **cuts the render tree by over 60%** and reduces layout CPU time by ~26%. Your CPU and GPU can finally focus on decoding the video smoothly without frame drops.
+By killing the ambient glow, collapsing sidebar recommendations, blocking telemetry in native C++ network rules, and loading comments strictly on-demand, it **cuts the render tree by over 60%** and reduces layout CPU time by ~26%. My potato laptop is now happy.
 
 ---
 
