@@ -4,19 +4,11 @@ A lightweight, distraction-free Manifest V3 Chrome extension designed to declutt
 
 ---
 
-## Why I Built This (Background)
+## Why I Built This
 
-I just wanted to watch long YouTube videos on my potato laptop without the browser stuttering, dropping frames, and spinning the cooling fans like a jet engine.
+I wanted to watch YouTube on a potato laptop without it stuttering and spinning fans like a jet engine. Modern YouTube burns huge resources on ambient canvas glows, dozens of sidebar thumbnail prefetches, and thousands of unread comment DOM nodes.
 
-When inspecting what was actually happening under the hood, modern YouTube runs an absurd amount of background overhead:
-- **GPU Ambient Glow**: Constantly copies video frames to an HTML5 canvas (`.ytp-ambient-canvas`) to calculate real-time lighting blurs, burning laptop GPU shaders and battery.
-- **Heavy Sidebar Recommendations**: Continuously fetches ad slots, video hover-previews, and thumbnails for dozens of suggested videos you aren't even watching.
-- **Aggressive Comment Loading**: Automatically pulls continuation streams, avatars, and thousands of heavy Polymer DOM nodes before you even decide to read comments.
-- **Oversized Render Tree**: Forces Chromium's Blink engine to track over 2,400 layout objects, triggering CPU-heavy style recalculations and layout passes on every scroll or resize.
-
-I built **YT Distraction Free** to strip YouTube down to what actually matters: **the video itself**. 
-
-By killing the ambient glow, collapsing sidebar recommendations, blocking telemetry in native C++ network rules, and loading comments strictly on-demand, it **cuts the render tree by over 60%** and reduces layout CPU time by ~26%. My potato laptop is now happy.
+This extension strips the bloat: it kills ambient lighting, collapses sidebar recommendations, blocks telemetry via C++ network rules, and loads comments strictly on demand—cutting the render tree by **over 60%** and reducing layout CPU time by ~26%. My potato laptop is now happy.
 
 ---
 
