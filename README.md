@@ -2,7 +2,7 @@
 
 A lightweight, distraction-free Manifest V3 Chrome extension designed to declutter YouTube, block advertising and telemetry, prevent automatic comment loading, and cut layout/GPU overhead during video playback.
 
-![Demo](screenshot.png)
+![Demo Video]()
 
 ---
 
