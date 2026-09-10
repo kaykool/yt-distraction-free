@@ -6,9 +6,11 @@ A lightweight, distraction-free Manifest V3 Chrome extension designed to declutt
 
 ## Why I Built This
 
-I wanted to watch YouTube on a potato laptop without it stuttering and spinning fans like a jet engine. Modern YouTube burns huge resources on ambient canvas glows, dozens of sidebar thumbnail prefetches, and thousands of unread comment DOM nodes.
+I just wanted to watch YouTube on my potato laptop without it lagging and sounding like a jet engine.
 
-This extension strips the bloat: it kills ambient lighting, collapses sidebar recommendations, blocks telemetry via C++ network rules, and loads comments strictly on demand—cutting the render tree by **over 60%** and reducing layout CPU time by ~26%. My potato laptop is now happy.
+YouTube today is heavy. It runs ambient lighting effects behind the player, preloads dozens of sidebar video previews you never asked for, and dumps thousands of comments into memory before you even scroll down.
+
+This extension cuts all of that out. No sidebar distractions, no ambient glow, and comments only load if you actually click the button. Videos play smoothly, and my potato laptop is finally happy.
 
 ---
 
