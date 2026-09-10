@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "YT Lite",
+  "version": "0.1",
+  "description": "Minimal YouTube: blocks ads/tracking, comments hidden until you click.",
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["*://*.youtube.com/*"], "js": ["start.js"], "css": ["hide.css"], "run_at": "document_start" },
+    { "matches": ["*://*.youtube.com/*"], "js": ["comments.js"], "run_at": "document_idle" }
+  ],
+  "declarative_net_request": {
+    "rule_resources": [{ "id": "lite", "enabled": true, "path": "rules.json" }]
+  },
+  "permissions": ["declarativeNetRequest"],
+  "host_permissions": ["*://*.youtube.com/*"]
+}

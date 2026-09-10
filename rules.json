@@ -1,0 +1,8 @@
+[
+  { "id": 1, "action": { "type": "block" }, "condition": { "urlFilter": "||doubleclick.net" } },
+  { "id": 2, "action": { "type": "block" }, "condition": { "urlFilter": "||googlesyndication.com" } },
+  { "id": 3, "action": { "type": "block" }, "condition": { "urlFilter": "||googleadservices.com" } },
+  { "id": 4, "action": { "type": "block" }, "condition": { "urlFilter": "||google-analytics.com" } },
+  { "id": 5, "action": { "type": "block" }, "condition": { "urlFilter": "youtubei/v1/log_event" } },
+  { "id": 6, "action": { "type": "block" }, "condition": { "urlFilter": "youtubei/v1/feedback" } }
+]
