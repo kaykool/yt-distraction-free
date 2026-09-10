@@ -35,36 +35,14 @@ A lightweight, distraction-free Manifest V3 Chrome extension designed to declutt
 
 ```
 yt-distraction-free/
-├── manifest.json            # MV3 configuration & DNR ruleset definition
-├── rules.json               # DeclarativeNetRequest ad & telemetry blocking rules
-├── start.js                 # Early document_start script (prevents comment flash)
-├── comments.js              # Watch-page lifecycle & on-demand comment reveal button
-├── hide.css                 # Clean centered layout, ambient canvas & ad suppression
-├── background.js            # One-time cleanup for legacy dynamic DNR rules
-├── test_yt_lite.js          # Automated unit test suite (DOM lifecycle & overhead)
-├── test_resources.js        # Benchmark runner comparing Vanilla vs YT Lite
-├── benchmark_resources.js   # CDP WebSocket-based resource measurement engine
-├── RESOURCES_REPORT.md      # Live benchmark comparison report
-└── FINDINGS.md              # Technical audit log & bugfix history
-```
-
----
-
-## Testing & Benchmarks
-
-Run the automated test suite:
-```bash
-node test_yt_lite.js
-```
-
-Run the built-in resource benchmark self-test:
-```bash
-node test_resources.js --self-test
-```
-
-Benchmark resource consumption against a live YouTube video:
-```bash
-node test_resources.js --url "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --duration 8 --output-md
+├── manifest.json   # MV3 configuration & DNR ruleset definition
+├── rules.json      # DeclarativeNetRequest ad & telemetry blocking rules
+├── start.js        # Early document_start script (prevents comment flash)
+├── comments.js     # Watch-page lifecycle & on-demand comment reveal button
+├── hide.css        # Clean centered layout, ambient canvas & ad suppression
+├── background.js   # One-time cleanup for legacy dynamic DNR rules
+├── README.md       # Project documentation
+└── LICENSE         # MIT License
 ```
 
 ---
