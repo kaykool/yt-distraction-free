@@ -53,6 +53,7 @@ yt-distraction-free/
 ├── comments.js     # Watch-page lifecycle & on-demand comment reveal button
 ├── hide.css        # Clean centered layout, ambient canvas & ad suppression
 ├── background.js   # One-time cleanup for legacy dynamic DNR rules
+├── icons/          # Extension icons (16px, 32px, 48px, 128px, 512px)
 ├── README.md       # Project documentation
 └── LICENSE         # MIT License
 ```
