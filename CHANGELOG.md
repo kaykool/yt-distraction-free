@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/kaykool/yt-distraction-free/compare/v0.2.0...v0.3.0) (2026-09-10)
+
+
+### Features
+
+* add extension icons and register in manifest ([7e6e558](https://github.com/kaykool/yt-distraction-free/commit/7e6e55818f93ba13afca8ec898f32f123033a08a))
+
 ## [0.2.0](https://github.com/kaykool/yt-distraction-free/compare/v0.1.0...v0.2.0) (2026-09-10)
 
 

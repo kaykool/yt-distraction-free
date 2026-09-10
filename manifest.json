@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YT Distraction Free",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Minimal YouTube: blocks ads/tracking, comments hidden until you click.",
   "icons": {
     "16": "icons/icon16.png",
