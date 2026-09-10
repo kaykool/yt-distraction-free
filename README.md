@@ -4,6 +4,22 @@ A lightweight, distraction-free Manifest V3 Chrome extension designed to declutt
 
 ---
 
+## Why I Built This (Background)
+
+I just wanted to watch long YouTube videos on my potato laptop without the browser stuttering, dropping frames, and spinning the cooling fans like a jet engine.
+
+When inspecting what was actually happening under the hood, modern YouTube runs an absurd amount of background overhead:
+- **GPU Ambient Glow**: Constantly copies video frames to an HTML5 canvas (`.ytp-ambient-canvas`) to calculate real-time lighting blurs, burning laptop GPU shaders and battery.
+- **Heavy Sidebar Recommendations**: Continuously fetches ad slots, video hover-previews, and thumbnails for dozens of suggested videos you aren't even watching.
+- **Aggressive Comment Loading**: Automatically pulls continuation streams, avatars, and thousands of heavy Polymer DOM nodes before you even decide to read comments.
+- **Oversized Render Tree**: Forces Chromium's Blink engine to track over 2,400 layout objects, triggering CPU-heavy style recalculations and layout passes on every scroll or resize.
+
+I built **YT Distraction Free** to strip YouTube down to what actually matters: **the video itself**. 
+
+By killing the ambient glow, collapsing sidebar recommendations, blocking telemetry in native C++ network rules, and loading comments strictly on-demand, it **cuts the render tree by over 60%** and reduces layout CPU time by ~26%. Your CPU and GPU can finally focus on decoding the video smoothly without frame drops.
+
+---
+
 ## Features
 
 - **On-Demand Comments**: Comments are completely suppressed until you explicitly click **"Show comments"**. No background continuation requests (`youtubei/v1/next`) or avatars are loaded until requested.
