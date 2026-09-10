@@ -287,3 +287,20 @@ yt-chip-cloud-chip-renderer,
   outline: 2px solid var(--yt-spec-call-to-action, #065fd4);
   outline-offset: 2px;
 }
+
+/* Description box cleanup: remove Ask AI, Music/Games/info shelves, transcripts, channel/social links */
+ytd-structured-description-content-renderer ytd-video-description-transcript-section-renderer,
+ytd-structured-description-content-renderer ytd-video-description-infocards-section-renderer,
+ytd-structured-description-content-renderer ytd-video-description-music-section-renderer,
+ytd-structured-description-content-renderer ytd-video-description-course-section-renderer,
+ytd-structured-description-content-renderer ytd-horizontal-card-list-renderer,
+ytd-structured-description-content-renderer yt-video-attribute-view-model,
+ytd-structured-description-content-renderer ytd-compact-infocard-renderer,
+ytd-structured-description-content-renderer ytd-media-lockup-renderer,
+ytd-structured-description-content-renderer ytd-metadata-row-container-renderer,
+ytd-structured-description-content-renderer ytd-expandable-metadata-renderer,
+ytd-structured-description-content-renderer ytd-reel-shelf-renderer,
+ytd-structured-description-content-renderer #footer-section {
+  display: none !important;
+}
+
