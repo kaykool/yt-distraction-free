@@ -93,13 +93,7 @@ ytd-watch-grid[fullscreen] #secondary {
 /* Display sidebar when live stream, live chat, or Ask / engagement panels are active */
 html.ytlite-sidebar-active ytd-watch-flexy:not([fullscreen]) #secondary,
 html.ytlite-sidebar-active ytd-watch-grid:not([fullscreen]) #secondary,
-html.ytlite-live ytd-watch-flexy:not([fullscreen]) #secondary,
-html.ytlite-live ytd-watch-grid:not([fullscreen]) #secondary,
-ytd-watch-flexy:not([fullscreen])[live] #secondary,
-ytd-watch-flexy:not([fullscreen])[is-live] #secondary,
 ytd-watch-flexy:not([fullscreen])[panels-expanded] #secondary,
-ytd-watch-grid:not([fullscreen])[live] #secondary,
-ytd-watch-grid:not([fullscreen])[is-live] #secondary,
 ytd-watch-grid:not([fullscreen])[panels-expanded] #secondary {
   display: block !important;
   margin-left: 24px !important;
@@ -115,15 +109,7 @@ html.ytlite-sidebar-active ytd-watch-flexy #primary,
 html.ytlite-sidebar-active ytd-watch-grid #primary,
 html.ytlite-sidebar-active ytd-watch-flexy[is-two-columns_] #primary,
 html.ytlite-sidebar-active ytd-watch-grid[is-two-columns_] #primary,
-html.ytlite-live ytd-watch-flexy #primary,
-html.ytlite-live ytd-watch-grid #primary,
-html.ytlite-live ytd-watch-flexy[is-two-columns_] #primary,
-html.ytlite-live ytd-watch-grid[is-two-columns_] #primary,
-ytd-watch-flexy[live] #primary,
-ytd-watch-flexy[is-live] #primary,
 ytd-watch-flexy[panels-expanded] #primary,
-ytd-watch-grid[live] #primary,
-ytd-watch-grid[is-live] #primary,
 ytd-watch-grid[panels-expanded] #primary {
   margin-left: 0 !important;
   margin-right: 0 !important;
@@ -133,8 +119,6 @@ ytd-watch-grid[panels-expanded] #primary {
 /* Ensure secondary content (chat, Ask/engagement panels) stretches to fit sidebar width */
 html.ytlite-sidebar-active ytd-watch-flexy #secondary-inner,
 html.ytlite-sidebar-active ytd-watch-grid #secondary-inner,
-html.ytlite-live ytd-watch-flexy #secondary-inner,
-html.ytlite-live ytd-watch-grid #secondary-inner,
 ytd-watch-flexy[panels-expanded] #secondary-inner,
 ytd-watch-grid[panels-expanded] #secondary-inner {
   width: 100% !important;
@@ -256,8 +240,8 @@ yt-chip-cloud-chip-renderer,
   position: relative;
 }
 
-/* Suppress comment reveal button on live streams */
-html.ytlite-live .ytlite-button-container {
+/* Suppress reveal button while sidebar is active */
+html.ytlite-sidebar-active .ytlite-button-container {
   display: none !important;
 }
 

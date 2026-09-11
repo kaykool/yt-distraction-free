@@ -64,33 +64,40 @@
     return false;
   }
 
+  function isLiveChatClosed() {
+    const chatFrame = document.querySelector('ytd-live-chat-frame, #chat');
+    if (!chatFrame) return false;
+    return hasAttr(chatFrame, 'collapsed') ||
+      hasAttr(chatFrame, 'hidden') ||
+      hasAttr(chatFrame, 'hide-chat-frame');
+  }
+
   function isSidebarNeeded(isLive) {
     if (!isWatchPage()) return false;
 
-    // 1. Direct /live stream route or live video
-    if (isLive !== undefined ? isLive : isLiveVideo()) return true;
+    // 1. Direct /live stream route or live video (when chat is not closed)
+    if (isLive !== undefined ? isLive : isLiveVideo()) {
+      if (!isLiveChatClosed()) return true;
+    }
 
     // 2. Watch container attributes
     const watchEl = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
     if (watchEl) {
-      if (hasAttr(watchEl, 'live') || hasAttr(watchEl, 'is-live')) return true;
+      if ((hasAttr(watchEl, 'live') || hasAttr(watchEl, 'is-live')) && !isLiveChatClosed()) return true;
       if (hasAttr(watchEl, 'panels-expanded')) return true;
     }
 
     // 3. Active live chat frame
     const chatFrame = document.querySelector('ytd-live-chat-frame, #chat');
-    if (chatFrame) {
-      const isCollapsed = hasAttr(chatFrame, 'collapsed') ||
-        hasAttr(chatFrame, 'hidden') ||
-        hasAttr(chatFrame, 'hide-chat-frame');
-      if (!isCollapsed) return true;
+    if (chatFrame && !isLiveChatClosed()) {
+      return true;
     }
 
     // 4. Active chatframe iframe
     const chatIframe = document.getElementById('chatframe');
-    if (chatIframe && !chatIframe.hidden) {
+    if (chatIframe && !chatIframe.hidden && !isLiveChatClosed()) {
       const chatParent = typeof chatIframe.closest === 'function' ? chatIframe.closest('ytd-live-chat-frame, #chat') : null;
-      if (!chatParent || (!hasAttr(chatParent, 'collapsed') && !hasAttr(chatParent, 'hidden'))) {
+      if (!chatParent || !isLiveChatClosed()) {
         return true;
       }
     }
@@ -127,19 +134,21 @@
       Boolean(document.querySelector('ytd-watch-flexy[live], ytd-watch-flexy[is-live], ytd-watch-grid[live], ytd-watch-grid[is-live], ytd-live-chat-frame:not([collapsed]):not([hidden]):not([hide-chat-frame])'));
     if (isLive) {
       document.documentElement.classList.add('ytlite-live');
-      document.documentElement.classList.add('ytlite-sidebar-active');
       document.documentElement.classList.remove('ytlite-comments-hide');
-      removeExistingButton();
       disconnectObserver();
     } else {
       document.documentElement.classList.remove('ytlite-live');
     }
 
-    const needSidebar = isLive || isSidebarNeeded(isLive);
+    const needSidebar = isSidebarNeeded(isLive);
     if (needSidebar) {
       document.documentElement.classList.add('ytlite-sidebar-active');
+      removeExistingButton();
     } else {
       document.documentElement.classList.remove('ytlite-sidebar-active');
+      if (isWatchPage()) {
+        place();
+      }
     }
   }
 
@@ -258,20 +267,54 @@
     triggerContinuation();
   }
 
+  function openLiveChat() {
+    const chat = document.querySelector('ytd-live-chat-frame, #chat');
+    if (chat) {
+      if (typeof chat.setCollapsedState === 'function') {
+        chat.setCollapsedState(false);
+      } else if (typeof chat.onShowHideChat === 'function') {
+        chat.onShowHideChat();
+      }
+      chat.removeAttribute('collapsed');
+      chat.removeAttribute('hidden');
+      chat.removeAttribute('hide-chat-frame');
+    }
+    const showBtn = document.querySelector('#show-hide-button button, [aria-label="Show chat"]');
+    if (showBtn) {
+      try { showBtn.click(); } catch (_) {}
+    }
+    const teaserBtn = document.querySelector('#teaser-carousel button, yt-video-metadata-carousel-view-model [role="button"], yt-video-metadata-carousel-view-model button');
+    if (teaserBtn) {
+      try { teaserBtn.click(); } catch (_) {}
+    }
+    document.documentElement.classList.add('ytlite-sidebar-active');
+    removeExistingButton();
+    scheduleSidebarUpdate();
+  }
+
   let isPlacing = false;
 
   function place() {
     if (isPlacing) return false;
-    if (!isWatchPage() || isLiveVideo() || document.documentElement.classList.contains('ytlite-live')) {
+    if (!isWatchPage()) {
       removeExistingButton();
       disconnectObserver();
       return false;
     }
 
-    if (!document.documentElement.classList.contains('ytlite-comments-hide')) {
-      removeExistingButton();
-      disconnectObserver();
-      return false;
+    const isLive = isLiveVideo() || document.documentElement.classList.contains('ytlite-live');
+    if (isLive) {
+      if (document.documentElement.classList.contains('ytlite-sidebar-active') || !isLiveChatClosed()) {
+        removeExistingButton();
+        disconnectObserver();
+        return false;
+      }
+    } else {
+      if (!document.documentElement.classList.contains('ytlite-comments-hide')) {
+        removeExistingButton();
+        disconnectObserver();
+        return false;
+      }
     }
 
     if (buttonContainer && buttonContainer.isConnected) {
@@ -285,11 +328,10 @@
     }
 
     // Find the best placement target
-    const commentsTarget = document.querySelector('#comments, ytd-comments, ytd-item-section-renderer[section-identifier="comment-item-section"]');
+    const commentsTarget = !isLive ? document.querySelector('#comments, ytd-comments, ytd-item-section-renderer[section-identifier="comment-item-section"]') : null;
     const metadataTarget = document.querySelector('ytd-watch-metadata, #below ytd-watch-metadata');
-    const panelTarget = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-comments-section"]');
+    const panelTarget = !isLive ? document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-comments-section"]') : null;
     const belowTarget = document.getElementById('below');
-    const primaryInner = document.getElementById('primary-inner');
 
     // Only place once comments, metadata, engagement panel, or content in #below is available
     const targetEl = commentsTarget || metadataTarget || panelTarget || (belowTarget && belowTarget.children.length > 0 ? belowTarget : null);
@@ -302,13 +344,18 @@
       const container = document.createElement('div');
       container.className = 'ytlite-button-container';
 
-      const commentsBtn = document.createElement('button');
-      commentsBtn.type = 'button';
-      commentsBtn.className = 'ytlite-comments-btn';
-      commentsBtn.textContent = 'Show comments';
-      commentsBtn.addEventListener('click', revealComments, { once: true });
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ytlite-comments-btn';
+      if (isLive) {
+        btn.textContent = 'Show chat';
+        btn.addEventListener('click', openLiveChat, { once: true });
+      } else {
+        btn.textContent = 'Show comments';
+        btn.addEventListener('click', revealComments, { once: true });
+      }
 
-      container.appendChild(commentsBtn);
+      container.appendChild(btn);
 
       if (commentsTarget && commentsTarget.parentElement) {
         commentsTarget.parentElement.insertBefore(container, commentsTarget);
@@ -384,7 +431,8 @@
       return;
     }
 
-    if (isLiveVideo() || document.documentElement.classList.contains('ytlite-live')) {
+    const isLive = isLiveVideo() || document.documentElement.classList.contains('ytlite-live');
+    if (isLive && !isLiveChatClosed()) {
       clearSidebarTimer();
       disconnectObserver();
       removeExistingButton();
@@ -398,7 +446,7 @@
     setTimeout(updateSidebarState, 4500);
     setTimeout(updateSidebarState, 6000);
 
-    if (!document.documentElement.classList.contains('ytlite-comments-hide')) {
+    if (!isLive && !document.documentElement.classList.contains('ytlite-comments-hide')) {
       disconnectObserver();
       return;
     }
@@ -498,4 +546,5 @@
   }, { passive: true });
   document.addEventListener('yt-engagement-panel-visibility-changed', scheduleSidebarUpdate, { passive: true });
   document.addEventListener('yt-visibility-refresh', scheduleSidebarUpdate, { passive: true });
+  document.addEventListener('yt-chat-collapsed-changed', scheduleSidebarUpdate, { passive: true });
 })();
