@@ -140,10 +140,20 @@ ytd-watch-flexy:not([fullscreen]):not([theater]) #player-container-outer,
 ytd-watch-flexy:not([fullscreen]):not([theater]) #player-container-inner,
 ytd-watch-flexy:not([fullscreen]):not([theater]) #player,
 ytd-watch-flexy:not([fullscreen]):not([theater]) #ytd-player,
+ytd-watch-flexy:not([fullscreen]):not([theater]) #movie_player,
+ytd-watch-flexy:not([fullscreen]):not([theater]) .html5-video-player,
 ytd-watch-grid:not([fullscreen]):not([theater]) #player-container-outer,
 ytd-watch-grid:not([fullscreen]):not([theater]) #player-container-inner,
 ytd-watch-grid:not([fullscreen]):not([theater]) #player,
-ytd-watch-grid:not([fullscreen]):not([theater]) #ytd-player {
+ytd-watch-grid:not([fullscreen]):not([theater]) #ytd-player,
+ytd-watch-grid:not([fullscreen]):not([theater]) #movie_player,
+ytd-watch-grid:not([fullscreen]):not([theater]) .html5-video-player,
+#player.skeleton,
+#player.skeleton #player-wrap,
+#player.skeleton #player-api,
+#player.skeleton #player-placeholder,
+#player.skeleton #movie_player,
+#player.skeleton .html5-video-player {
   max-width: 854px !important;
   max-height: 480px !important;
   min-height: unset !important;
@@ -157,9 +167,28 @@ ytd-watch-grid:not([fullscreen]):not([theater]) #ytd-player {
 ytd-watch-flexy:not([fullscreen]):not([theater]) #player-container-outer,
 ytd-watch-flexy:not([fullscreen]):not([theater]) #player-container-inner,
 ytd-watch-grid:not([fullscreen]):not([theater]) #player-container-outer,
-ytd-watch-grid:not([fullscreen]):not([theater]) #player-container-inner {
+ytd-watch-grid:not([fullscreen]):not([theater]) #player-container-inner,
+#player.skeleton,
+#player.skeleton #player-wrap,
+#player.skeleton #player-api,
+#player.skeleton #player-placeholder {
   aspect-ratio: 16 / 9 !important;
   height: auto !important;
+}
+
+#player.skeleton #player-placeholder {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Skeleton watch metadata & container layout */
+#watch-page-skeleton,
+#watch-page-skeleton #container,
+#watch-page-skeleton #info-container {
+  max-width: 854px !important;
+  width: 100% !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
 }
 
 /* Solid, opaque app header & chips bar (no transparency, no blur, no alpha channel) */
