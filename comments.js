@@ -12,35 +12,63 @@
   const hasAttr = (el, attr) => Boolean(el && typeof el.hasAttribute === 'function' && el.hasAttribute(attr));
   const getAttr = (el, attr) => (el && typeof el.getAttribute === 'function' ? el.getAttribute(attr) : null);
 
+  let cachedVideoId = null;
+  let cachedIsLive = false;
+
   function isLiveVideo() {
     if (location.pathname.startsWith('/live')) return true;
-    const watchEl = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
-    if (watchEl && (hasAttr(watchEl, 'live') || hasAttr(watchEl, 'is-live'))) return true;
-    const badge = document.querySelector('.ytp-live-badge');
-    if (badge && (badge.offsetWidth > 0 || (typeof badge.checkVisibility === 'function' ? badge.checkVisibility() : window.getComputedStyle(badge).display !== 'none'))) {
-      return true;
-    }
+
     const match = location.search && location.search.match(/[?&]v=([^&#]+)/);
     const currentVideoId = match ? match[1] : null;
+
+    if (currentVideoId && cachedVideoId === currentVideoId) {
+      return cachedIsLive;
+    }
+
+    const watchEl = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
+    if (watchEl && (
+      hasAttr(watchEl, 'live') ||
+      hasAttr(watchEl, 'is-live') ||
+      hasAttr(watchEl, 'live-chat-present-and-expanded') ||
+      hasAttr(watchEl, 'should-stamp-chat')
+    )) {
+      if (currentVideoId) { cachedVideoId = currentVideoId; cachedIsLive = true; }
+      return true;
+    }
+
+    const badge = document.querySelector('.ytp-live-badge');
+    if (badge && (hasAttr(badge, 'disabled') || (badge.classList && badge.classList.contains('ytp-live-badge-is-livehead')))) {
+      if (currentVideoId) { cachedVideoId = currentVideoId; cachedIsLive = true; }
+      return true;
+    }
+
     const scripts = typeof document.getElementsByTagName === 'function'
       ? document.getElementsByTagName('script')
       : (typeof document.querySelectorAll === 'function' ? document.querySelectorAll('script') : []);
     for (let i = 0; i < scripts.length; i++) {
-      const txt = scripts[i].textContent;
+      const s = scripts[i];
+      if (s.src) continue;
+      const txt = s.textContent;
       if (txt && (txt.includes('"isLive":true') || txt.includes('"isLiveContent":true') || txt.includes('liveChatRenderer'))) {
         if (!currentVideoId || txt.includes(currentVideoId)) {
+          if (currentVideoId) { cachedVideoId = currentVideoId; cachedIsLive = true; }
           return true;
         }
       }
     }
+
+    if (currentVideoId) {
+      cachedVideoId = currentVideoId;
+      cachedIsLive = false;
+    }
     return false;
   }
 
-  function isSidebarNeeded() {
+  function isSidebarNeeded(isLive) {
     if (!isWatchPage()) return false;
 
     // 1. Direct /live stream route or live video
-    if (isLiveVideo()) return true;
+    if (isLive !== undefined ? isLive : isLiveVideo()) return true;
 
     // 2. Watch container attributes
     const watchEl = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
@@ -107,7 +135,7 @@
       document.documentElement.classList.remove('ytlite-live');
     }
 
-    const needSidebar = isLive || isSidebarNeeded();
+    const needSidebar = isLive || isSidebarNeeded(isLive);
     if (needSidebar) {
       document.documentElement.classList.add('ytlite-sidebar-active');
     } else {
@@ -384,6 +412,8 @@
 
   function handleNavigateStart(e) {
     clearSidebarTimer();
+    cachedVideoId = null;
+    cachedIsLive = false;
     const navUrl = getUrlFromEvent(e);
     const willBeWatch = navUrl ? isWatchUrl(navUrl) : isWatchPage();
     if (willBeWatch) {
@@ -413,6 +443,11 @@
       resp?.contents?.twoColumnWatchNextResults?.conversationBar?.liveChatRenderer ||
       (resp && JSON.stringify(resp).includes('liveChatRenderer'))
     );
+    const match = location.search && location.search.match(/[?&]v=([^&#]+)/);
+    if (match) {
+      cachedVideoId = match[1];
+      cachedIsLive = isLiveFromEvent || hasChatFromEvent;
+    }
     if (isLiveFromEvent || hasChatFromEvent) {
       document.documentElement.classList.add('ytlite-live');
       document.documentElement.classList.add('ytlite-sidebar-active');
@@ -463,9 +498,4 @@
   }, { passive: true });
   document.addEventListener('yt-engagement-panel-visibility-changed', scheduleSidebarUpdate, { passive: true });
   document.addEventListener('yt-visibility-refresh', scheduleSidebarUpdate, { passive: true });
-  document.addEventListener('yt-action', () => {
-    if (!document.documentElement.classList.contains('ytlite-live') && isLiveVideo()) {
-      updateSidebarState();
-    }
-  }, { passive: true });
 })();
