@@ -12,11 +12,35 @@
   const hasAttr = (el, attr) => Boolean(el && typeof el.hasAttribute === 'function' && el.hasAttribute(attr));
   const getAttr = (el, attr) => (el && typeof el.getAttribute === 'function' ? el.getAttribute(attr) : null);
 
+  function isLiveVideo() {
+    if (location.pathname.startsWith('/live')) return true;
+    const watchEl = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
+    if (watchEl && (hasAttr(watchEl, 'live') || hasAttr(watchEl, 'is-live'))) return true;
+    const badge = document.querySelector('.ytp-live-badge');
+    if (badge && (badge.offsetWidth > 0 || (typeof badge.checkVisibility === 'function' ? badge.checkVisibility() : window.getComputedStyle(badge).display !== 'none'))) {
+      return true;
+    }
+    const match = location.search && location.search.match(/[?&]v=([^&#]+)/);
+    const currentVideoId = match ? match[1] : null;
+    const scripts = typeof document.getElementsByTagName === 'function'
+      ? document.getElementsByTagName('script')
+      : (typeof document.querySelectorAll === 'function' ? document.querySelectorAll('script') : []);
+    for (let i = 0; i < scripts.length; i++) {
+      const txt = scripts[i].textContent;
+      if (txt && (txt.includes('"isLive":true') || txt.includes('"isLiveContent":true') || txt.includes('liveChatRenderer'))) {
+        if (!currentVideoId || txt.includes(currentVideoId)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   function isSidebarNeeded() {
     if (!isWatchPage()) return false;
 
-    // 1. Direct /live stream route
-    if (location.pathname.startsWith('/live')) return true;
+    // 1. Direct /live stream route or live video
+    if (isLiveVideo()) return true;
 
     // 2. Watch container attributes
     const watchEl = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
@@ -71,10 +95,14 @@
   }
 
   function updateSidebarState() {
-    const isLive = location.pathname.startsWith('/live') ||
+    const isLive = isLiveVideo() ||
       Boolean(document.querySelector('ytd-watch-flexy[live], ytd-watch-flexy[is-live], ytd-watch-grid[live], ytd-watch-grid[is-live], ytd-live-chat-frame:not([collapsed]):not([hidden]):not([hide-chat-frame])'));
     if (isLive) {
       document.documentElement.classList.add('ytlite-live');
+      document.documentElement.classList.add('ytlite-sidebar-active');
+      document.documentElement.classList.remove('ytlite-comments-hide');
+      removeExistingButton();
+      disconnectObserver();
     } else {
       document.documentElement.classList.remove('ytlite-live');
     }
@@ -105,7 +133,7 @@
     if (!isWatchPage()) return;
     updateSidebarState();
     clearSidebarTimers();
-    [50, 200, 500, 1000].forEach((delay) => {
+    [50, 200, 500, 1000, 2500].forEach((delay) => {
       sidebarUpdateTimers.push(setTimeout(() => {
         updateSidebarState();
       }, delay));
@@ -206,7 +234,7 @@
 
   function place() {
     if (isPlacing) return false;
-    if (!isWatchPage()) {
+    if (!isWatchPage() || isLiveVideo() || document.documentElement.classList.contains('ytlite-live')) {
       removeExistingButton();
       disconnectObserver();
       return false;
@@ -328,9 +356,19 @@
       return;
     }
 
+    if (isLiveVideo() || document.documentElement.classList.contains('ytlite-live')) {
+      clearSidebarTimer();
+      disconnectObserver();
+      removeExistingButton();
+      return;
+    }
+
     // Catch deferred custom element hydration on direct cold watch page loads
     setTimeout(updateSidebarState, 300);
     setTimeout(updateSidebarState, 1000);
+    setTimeout(updateSidebarState, 2500);
+    setTimeout(updateSidebarState, 4500);
+    setTimeout(updateSidebarState, 6000);
 
     if (!document.documentElement.classList.contains('ytlite-comments-hide')) {
       disconnectObserver();
@@ -366,11 +404,26 @@
     disconnectObserver();
   }
 
-  function handleNavigateFinish() {
+  function handleNavigateFinish(e) {
     clearSidebarTimer();
+    const resp = e?.detail?.response;
+    const pr = e?.detail?.playerResponse || resp?.playerResponse;
+    const isLiveFromEvent = Boolean(pr?.videoDetails?.isLive || pr?.videoDetails?.isLiveContent);
+    const hasChatFromEvent = Boolean(
+      resp?.contents?.twoColumnWatchNextResults?.conversationBar?.liveChatRenderer ||
+      (resp && JSON.stringify(resp).includes('liveChatRenderer'))
+    );
+    if (isLiveFromEvent || hasChatFromEvent) {
+      document.documentElement.classList.add('ytlite-live');
+      document.documentElement.classList.add('ytlite-sidebar-active');
+      document.documentElement.classList.remove('ytlite-comments-hide');
+    }
+
     updateSidebarState();
     if (isWatchPage()) {
-      document.documentElement.classList.add('ytlite-comments-hide');
+      if (!isLiveVideo()) {
+        document.documentElement.classList.add('ytlite-comments-hide');
+      }
       removeExistingButton();
       init();
     } else {
@@ -384,7 +437,7 @@
 
   function handleDataUpdated() {
     updateSidebarState();
-    if (!isWatchPage() || !document.documentElement.classList.contains('ytlite-comments-hide')) {
+    if (!isWatchPage() || isLiveVideo() || !document.documentElement.classList.contains('ytlite-comments-hide')) {
       return;
     }
     if (buttonContainer && buttonContainer.isConnected) {
@@ -410,4 +463,9 @@
   }, { passive: true });
   document.addEventListener('yt-engagement-panel-visibility-changed', scheduleSidebarUpdate, { passive: true });
   document.addEventListener('yt-visibility-refresh', scheduleSidebarUpdate, { passive: true });
+  document.addEventListener('yt-action', () => {
+    if (!document.documentElement.classList.contains('ytlite-live') && isLiveVideo()) {
+      updateSidebarState();
+    }
+  }, { passive: true });
 })();

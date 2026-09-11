@@ -256,6 +256,11 @@ yt-chip-cloud-chip-renderer,
   position: relative;
 }
 
+/* Suppress comment reveal button on live streams */
+html.ytlite-live .ytlite-button-container {
+  display: none !important;
+}
+
 .ytlite-comments-btn {
   display: inline-flex;
   align-items: center;
@@ -287,6 +292,10 @@ yt-chip-cloud-chip-renderer,
   outline: 2px solid var(--yt-spec-call-to-action, #065fd4);
   outline-offset: 2px;
 }
+
+/* Promotional teaser carousel (Live chat "Open panel", shopping, products) */
+#teaser-carousel,
+yt-video-metadata-carousel-view-model,
 
 /* Description box cleanup: remove Ask AI, Music/Games/info shelves, transcripts, channel/social links */
 ytd-structured-description-content-renderer ytd-video-description-transcript-section-renderer,
