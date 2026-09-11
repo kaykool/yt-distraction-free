@@ -2,8 +2,6 @@
 html.ytlite-comments-hide #comments,
 html.ytlite-comments-hide ytd-comments,
 html.ytlite-comments-hide ytd-item-section-renderer[section-identifier="comment-item-section"],
-html.ytlite-comments-hide ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-comments-section"],
-html.ytlite-comments-hide ytd-engagement-panel-section-list-renderer[data-target-id="engagement-panel-comments-section"],
 html.ytlite-comments-hide ytd-engagement-panel-section-list-renderer[target-id*="comment"],
 html.ytlite-comments-hide ytd-engagement-panel-section-list-renderer[data-target-id*="comment"] {
   display: none !important;
@@ -11,7 +9,6 @@ html.ytlite-comments-hide ytd-engagement-panel-section-list-renderer[data-target
 
 /* related/suggested videos right column — user doesn't use them.
    Also kills hover-thumbnail prefetch + ad slots there while allowing AI Ask & engagement panels. */
-#secondary-inner #related,
 #secondary > ytd-watch-next-secondary-results-renderer,
 #related,
 #secondary ytd-compact-video-renderer,
@@ -57,14 +54,6 @@ ytd-watch-grid #primary {
   padding-right: 0 !important;
   float: none !important;
   flex: 0 1 854px !important;
-}
-
-ytd-watch-flexy[is-two-columns_] #primary,
-ytd-watch-grid[is-two-columns_] #primary {
-  margin-left: auto !important;
-  margin-right: auto !important;
-  padding-left: 0 !important;
-  padding-right: 0 !important;
 }
 
 ytd-watch-flexy #primary-inner,
@@ -127,8 +116,6 @@ ytd-watch-grid[panels-expanded] #secondary-inner {
 /* Hide ad engagement panels and ad slots so ads never expand or clutter the sidebar */
 #secondary ytd-ad-slot-renderer,
 #secondary ytd-in-feed-ad-layout-renderer,
-ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-ads"],
-ytd-engagement-panel-section-list-renderer[data-target-id="engagement-panel-ads"],
 ytd-engagement-panel-section-list-renderer[target-id*="ads"],
 ytd-engagement-panel-section-list-renderer[data-target-id*="ads"] {
   display: none !important;

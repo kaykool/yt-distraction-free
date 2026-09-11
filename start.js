@@ -10,5 +10,3 @@
     document.documentElement.classList.add('ytlite-sidebar-active');
   }
 })();
-
-
