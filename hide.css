@@ -256,8 +256,8 @@ yt-chip-cloud-chip-renderer,
   position: relative;
 }
 
-/* Suppress reveal button while sidebar is active */
-html.ytlite-sidebar-active .ytlite-button-container {
+/* Suppress reveal button while live chat is active in sidebar */
+html.ytlite-live.ytlite-sidebar-active .ytlite-button-container {
   display: none !important;
 }
 
@@ -312,4 +312,46 @@ ytd-structured-description-content-renderer ytd-reel-shelf-renderer,
 ytd-structured-description-content-renderer #footer-section {
   display: none !important;
 }
+
+/* Block video / Audio-only mode: stop video frame compositing */
+html.ytlite-video-blocked #movie_player video,
+html.ytlite-video-blocked .html5-video-player video {
+  visibility: hidden !important;
+}
+
+/* Player toggle button beside autoplay */
+.ytp-button.ytlite-video-toggle-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  vertical-align: top !important;
+  width: 36px !important;
+  height: 48px !important;
+  max-height: 100% !important;
+  cursor: pointer !important;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  font-family: inherit !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.5px !important;
+  line-height: 1 !important;
+  color: #ffffff !important;
+  opacity: 0.85 !important;
+  box-sizing: border-box !important;
+  transition: opacity 0.1s cubic-bezier(0, 0, 0.2, 1) !important;
+}
+
+.ytp-button.ytlite-video-toggle-btn:hover {
+  opacity: 1 !important;
+}
+
+.ytp-button.ytlite-video-toggle-btn.ytlite-ao {
+  color: #ff4e45 !important;
+}
+
+
 

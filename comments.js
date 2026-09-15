@@ -137,7 +137,11 @@
     const needSidebar = isSidebarNeeded(isLive);
     if (needSidebar) {
       document.documentElement.classList.add('ytlite-sidebar-active');
-      removeExistingButton();
+      if (isLive) {
+        removeExistingButton();
+      } else if (isWatchPage()) {
+        place();
+      }
     } else {
       document.documentElement.classList.remove('ytlite-sidebar-active');
       if (isWatchPage()) {
@@ -393,16 +397,126 @@
     }, 4000);
   }
 
+  let videoToggleBtn = null;
+  let videoObserver = null;
+  let videoObserverSafetyTimer = null;
+
+  function disconnectVideoObserver() {
+    if (videoObserver) {
+      videoObserver.disconnect();
+      videoObserver = null;
+    }
+    if (videoObserverSafetyTimer) {
+      clearTimeout(videoObserverSafetyTimer);
+      videoObserverSafetyTimer = null;
+    }
+  }
+
+  function updateVideoBtnState(btn) {
+    if (!btn) return;
+    const isBlocked = document.documentElement.classList.contains('ytlite-video-blocked');
+    btn.setAttribute('aria-label', isBlocked ? 'Unblock video (currently Audio Only)' : 'Block video (switch to Audio Only)');
+    btn.setAttribute('title', isBlocked ? 'Unblock video (currently Audio Only)' : 'Block video (switch to Audio Only)');
+    btn.setAttribute('aria-pressed', isBlocked ? 'true' : 'false');
+    btn.textContent = isBlocked ? 'AO' : 'VO';
+    btn.classList.toggle('ytlite-ao', isBlocked);
+  }
+
+  function placeVideoToggleButton() {
+    if (!isWatchPage()) {
+      disconnectVideoObserver();
+      return false;
+    }
+
+    if (videoToggleBtn && videoToggleBtn.isConnected) {
+      updateVideoBtnState(videoToggleBtn);
+      return true;
+    }
+
+    const existing = document.querySelector('.ytlite-video-toggle-btn');
+    if (existing && existing.isConnected) {
+      videoToggleBtn = existing;
+      updateVideoBtnState(videoToggleBtn);
+      return true;
+    }
+
+    const rightControls = document.querySelector('.ytp-right-controls');
+    if (!rightControls) return false;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ytp-button ytlite-video-toggle-btn';
+    updateVideoBtnState(btn);
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nextBlocked = !document.documentElement.classList.contains('ytlite-video-blocked');
+      document.documentElement.classList.toggle('ytlite-video-blocked', nextBlocked);
+      try {
+        localStorage.setItem('ytlite-block-video', nextBlocked ? 'true' : 'false');
+      } catch (_) {}
+      updateVideoBtnState(btn);
+    });
+
+    // Ensure we find the top-level container inside rightControls, not an inner child
+    const autonavContainer = rightControls.querySelector('.ytp-autonav-toggle-button-container');
+    if (autonavContainer && autonavContainer.parentElement === rightControls) {
+      rightControls.insertBefore(btn, autonavContainer);
+    } else {
+      rightControls.prepend(btn);
+    }
+
+    videoToggleBtn = btn;
+    disconnectVideoObserver();
+    return true;
+  }
+
+  function startScopedVideoObserver() {
+    disconnectVideoObserver();
+    if (!isWatchPage()) return;
+    if (videoToggleBtn && videoToggleBtn.isConnected) return;
+
+    videoObserver = new MutationObserver(() => {
+      if (!isWatchPage()) {
+        disconnectVideoObserver();
+        return;
+      }
+      if (placeVideoToggleButton()) {
+        disconnectVideoObserver();
+      }
+    });
+
+    const target = document.querySelector('.html5-video-player, #movie_player, #ytd-player, #player') || document.body;
+    videoObserver.observe(target, { childList: true, subtree: true });
+
+    videoObserverSafetyTimer = setTimeout(() => {
+      disconnectVideoObserver();
+    }, 4000);
+  }
+
+  function initVideoToggle() {
+    if (!isWatchPage()) {
+      disconnectVideoObserver();
+      return;
+    }
+    if (!placeVideoToggleButton()) {
+      startScopedVideoObserver();
+    }
+  }
+
   function init() {
     updateSidebarState();
     if (!isWatchPage()) {
       clearSidebarTimers();
       disconnectObserver();
+      disconnectVideoObserver();
       removeExistingButton();
       document.documentElement.classList.remove('ytlite-sidebar-active');
       document.documentElement.classList.remove('ytlite-live');
       return;
     }
+
+    initVideoToggle();
 
     const isLive = isLiveVideo() || document.documentElement.classList.contains('ytlite-live');
     if (isLive && !isLiveChatClosed()) {
@@ -452,6 +566,7 @@
     }
     removeExistingButton();
     disconnectObserver();
+    disconnectVideoObserver();
   }
 
   function handleNavigateFinish(e) {
@@ -493,6 +608,9 @@
 
   function handleDataUpdated() {
     updateSidebarState();
+    if (isWatchPage()) {
+      placeVideoToggleButton();
+    }
     if (!isWatchPage() || isLiveVideo() || !document.documentElement.classList.contains('ytlite-comments-hide')) {
       return;
     }

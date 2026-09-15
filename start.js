@@ -4,6 +4,11 @@
   const path = location.pathname;
   if (path.startsWith('/watch') || path.startsWith('/live')) {
     document.documentElement.classList.add('ytlite-comments-hide');
+    try {
+      if (localStorage.getItem('ytlite-block-video') === 'true') {
+        document.documentElement.classList.add('ytlite-video-blocked');
+      }
+    } catch (_) {}
   }
   if (path.startsWith('/live')) {
     document.documentElement.classList.add('ytlite-live');

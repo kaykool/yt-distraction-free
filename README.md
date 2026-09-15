@@ -19,6 +19,7 @@ This extension cuts all of that out. No sidebar distractions, no ambient glow, a
 ## Features
 
 - **On-Demand Comments**: Comments are completely suppressed until you explicitly click **"Show comments"**. No background continuation requests (`youtubei/v1/next`) or avatars are loaded until requested.
+- **Block Video (Audio-Only Mode)**: Toggle button in the player control overlay beside Autoplay blanks video display while audio keeps playing, cutting GPU frame compositing and decoding overhead. State is remembered across videos.
 - **Distraction-Free Centered Layout**: Suppresses the right-hand sidebar recommendation column, in-feed suggested videos, and thumbnail hover-prefetches, keeping the player cleanly centered.
 - **Smart Sidebar Adaptation**: The sidebar dynamically appears when **Live Chat** or YouTube's **Ask (AI conversational panel)** / transcripts / chapters are active, and collapses back when closed.
 - **Ultra-Low Playback Overhead**:
