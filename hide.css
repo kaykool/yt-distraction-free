@@ -325,21 +325,21 @@ html.ytlite-video-blocked .html5-video-player video {
   align-items: center !important;
   justify-content: center !important;
   vertical-align: top !important;
-  width: 36px !important;
+  width: auto !important;
   height: 48px !important;
   max-height: 100% !important;
   cursor: pointer !important;
   background: transparent !important;
   border: none !important;
   outline: none !important;
-  padding: 0 !important;
+  padding: 0 6px !important;
   margin: 0 !important;
   font-family: inherit !important;
   font-size: 11px !important;
   font-weight: 700 !important;
   letter-spacing: 0.5px !important;
   line-height: 1 !important;
-  color: #ffffff !important;
+  color: #aaaaaa !important;
   opacity: 0.85 !important;
   box-sizing: border-box !important;
   transition: opacity 0.1s cubic-bezier(0, 0, 0.2, 1) !important;
@@ -350,7 +350,8 @@ html.ytlite-video-blocked .html5-video-player video {
 }
 
 .ytp-button.ytlite-video-toggle-btn.ytlite-ao {
-  color: #ff4e45 !important;
+  color: #ff0000 !important;
+  opacity: 1 !important;
 }
 
 

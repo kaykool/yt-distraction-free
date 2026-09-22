@@ -419,7 +419,7 @@
     btn.setAttribute('aria-label', isBlocked ? 'Unblock video (currently Audio Only)' : 'Block video (switch to Audio Only)');
     btn.setAttribute('title', isBlocked ? 'Unblock video (currently Audio Only)' : 'Block video (switch to Audio Only)');
     btn.setAttribute('aria-pressed', isBlocked ? 'true' : 'false');
-    btn.textContent = isBlocked ? 'AO' : 'VO';
+    btn.textContent = 'AudioOnly';
     btn.classList.toggle('ytlite-ao', isBlocked);
   }
 

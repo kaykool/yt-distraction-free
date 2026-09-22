@@ -21,7 +21,7 @@
     } catch (_) {}
   });
 
-  // Click bridge: the AO/VO button is created by comments.js in the ISOLATED
+  // Click bridge: the AudioOnly toggle button is created by comments.js in the ISOLATED
   // world. Catch its clicks here in the MAIN world so the quality change does
   // not depend on cross-world CustomEvent delivery. Capture phase runs before
   // the button handler; setTimeout(0) reads localStorage after it is written.
