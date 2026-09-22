@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/kaykool/yt-distraction-free/compare/v0.3.1...v0.4.0) (2026-09-22)
+
+
+### Features
+
+* add block video toggle and preserve comments button when sidebar active ([3e4197b](https://github.com/kaykool/yt-distraction-free/commit/3e4197b2c055f25d5f2b955b3d083a7f09c076e0))
+* enforce 144p/480p quality for block video toggle and coalesce sidebar updates ([f40272d](https://github.com/kaykool/yt-distraction-free/commit/f40272da7c9adc9411ba089affdfbc6c655e1b0c))
+
 ## [0.3.1](https://github.com/kaykool/yt-distraction-free/compare/v0.3.0...v0.3.1) (2026-09-11)
 
 
