@@ -51,6 +51,7 @@ yt-distraction-free/
 ├── manifest.json   # MV3 configuration & DNR ruleset definition
 ├── rules.json      # DeclarativeNetRequest ad & telemetry blocking rules
 ├── start.js        # Early document_start script (prevents comment flash)
+├── player.js       # MAIN world script: forces 144p/480p quality for block-video mode
 ├── comments.js     # Watch-page lifecycle & on-demand comment reveal button
 ├── hide.css        # Clean centered layout, ambient canvas & ad suppression
 ├── background.js   # One-time cleanup for legacy dynamic DNR rules
