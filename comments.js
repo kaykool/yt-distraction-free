@@ -158,7 +158,8 @@
 
   function scheduleSidebarUpdate() {
     if (!isWatchPage()) return;
-    updateSidebarState();
+    // Coalesce input bursts: drop the synchronous pass (6-8 DOM queries per click/keypress);
+    // the 150/600ms timers below cover the settled state.
     clearSidebarTimers();
     sidebarUpdateTimers.push(setTimeout(updateSidebarState, 150));
     sidebarUpdateTimers.push(setTimeout(updateSidebarState, 600));
@@ -456,6 +457,7 @@
         localStorage.setItem('ytlite-block-video', nextBlocked ? 'true' : 'false');
       } catch (_) {}
       updateVideoBtnState(btn);
+      window.dispatchEvent(new CustomEvent('ytlite-set-quality', { detail: { quality: nextBlocked ? '144' : '480' } }));
     });
 
     // Ensure we find the top-level container inside rightControls, not an inner child
@@ -502,6 +504,8 @@
     if (!placeVideoToggleButton()) {
       startScopedVideoObserver();
     }
+    const isBlocked = document.documentElement.classList.contains('ytlite-video-blocked');
+    window.dispatchEvent(new CustomEvent('ytlite-set-quality', { detail: { quality: isBlocked ? '144' : '480' } }));
   }
 
   function init() {

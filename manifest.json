@@ -38,6 +38,16 @@
         "*://*.youtube.com/*"
       ],
       "js": [
+        "player.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "js": [
         "comments.js"
       ],
       "run_at": "document_idle"
