@@ -478,6 +478,11 @@
     if (!isWatchPage()) return;
     if (videoToggleBtn && videoToggleBtn.isConnected) return;
 
+    // Resolve the target before creating the observer: assigning the observer first
+    // and then bailing out would leak an unbound observer with no safety timeout.
+    const target = document.querySelector('.html5-video-player, #movie_player, #ytd-player, #player, #player-container-outer, #primary-inner');
+    if (!target) return;
+
     videoObserver = new MutationObserver(() => {
       if (!isWatchPage()) {
         disconnectVideoObserver();
@@ -487,9 +492,6 @@
         disconnectVideoObserver();
       }
     });
-
-    const target = document.querySelector('.html5-video-player, #movie_player, #ytd-player, #player, #player-container-outer, #primary-inner');
-    if (!target) return;
     videoObserver.observe(target, { childList: true, subtree: true });
 
     videoObserverSafetyTimer = setTimeout(() => {
