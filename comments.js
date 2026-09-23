@@ -17,9 +17,8 @@
   let cachedDefinitive = false; // true when cachedIsLive came from an authoritative source
 
   // Live status supplied by YouTube's own lifecycle payloads. Authoritative and
-  // free, so it is preferred over any DOM/script inspection.
+  // free, so it is preferred over any DOM inspection.
   let eventLiveSignal = null; // { videoId, isLive }
-  let scannedVideoId = null; // video id whose bootstrap JSON we already inspected
 
   function videoIdFromUrl() {
     const match = location.search && location.search.match(/[?&]v=([^&#]+)/);
@@ -70,38 +69,21 @@
       return cacheLive(currentVideoId, true);
     }
 
-    // 4. Player API: no script parsing, no JSON scanning.
-    const player = document.getElementById('movie_player');
-    if (player && typeof player.getVideoData === 'function') {
-      try {
-        const data = player.getVideoData();
-        if (data && typeof data.isLive === 'boolean') {
-          return cacheLive(currentVideoId, data.isLive);
-        }
-      } catch (_) {}
-    }
-
-    // 5. Last resort: scan the inline bootstrap JSON. Only reached on a cold load
-    //    where no lifecycle payload was observed; kept narrow and bail-early.
-    if (!eventLiveSignal && scannedVideoId !== currentVideoId) {
-      const scripts = document.querySelectorAll('script:not([src])');
-      for (let i = 0; i < scripts.length; i++) {
-        const txt = scripts[i].textContent;
-        if (!txt) continue;
-        if (!txt.includes('ytInitialPlayerResponse') && !txt.includes('ytInitialData')) continue;
-        // Bootstrap JSON exists: this is now a definitive answer, so it is safe to
-        // skip the scan for the rest of this video id.
-        scannedVideoId = currentVideoId;
-        const isLive = txt.includes('"isLive":true') || txt.includes('"isLiveContent":true') || txt.includes('liveChatRenderer');
-        if (isLive && (!currentVideoId || txt.includes(currentVideoId))) {
-          return cacheLive(currentVideoId, true);
-        }
-        break;
+    // 4. Player API, via the flag player.js (MAIN world) publishes on <html>.
+    //    The player object's methods are page-JS expandos and do not exist in this
+    //    world, so the player cannot be asked directly from here. Only a positive
+    //    answer is ever published there; absence means "no authoritative answer".
+    const root = document.documentElement;
+    if (hasAttr(root, 'data-ytlite-live')) {
+      const publishedFor = getAttr(root, 'data-ytlite-video');
+      // A flag published for a different video is stale until player.js refreshes it.
+      if (!publishedFor || !currentVideoId || publishedFor === currentVideoId) {
+        return cacheLive(currentVideoId, true);
       }
     }
 
     // No authoritative source was available yet: report "not live" for now without
-    // committing it to the cache, so a later event/player signal can still win.
+    // committing it to the cache, so a later event or player signal can still win.
     return cacheLive(currentVideoId, false, false);
   }
 
@@ -112,36 +94,24 @@
       hasAttr(chatFrame, 'hide-chat-frame');
   }
 
-  function isSidebarNeeded(isLive) {
+  function isSidebarNeeded() {
     if (!isWatchPage()) return false;
 
+    // The sidebar only earns its space when it has content to show. A live video
+    // with no chat would otherwise reserve ~400px of column that hide.css empties
+    // (the related-video list is hidden), leaving a blank gutter next to the player.
     const chatFrame = document.querySelector('ytd-live-chat-frame, #chat');
-    const chatClosed = isLiveChatClosed(chatFrame);
+    if (chatFrame && !isLiveChatClosed(chatFrame)) return true;
 
-    // 1. Direct /live stream route or live video (when chat is not closed)
-    if (isLive !== undefined ? isLive : isLiveVideo()) {
-      if (!chatClosed) return true;
-    }
-
-    // 2. Watch container attributes
-    const watchEl = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
-    if (watchEl) {
-      if ((hasAttr(watchEl, 'live') || hasAttr(watchEl, 'is-live')) && !chatClosed) return true;
-      if (hasAttr(watchEl, 'panels-expanded')) return true;
-    }
-
-    // 3. Active live chat frame
-    if (chatFrame && !chatClosed) {
-      return true;
-    }
-
-    // 4. Active chatframe iframe
+    // Live chat can also be mounted as a bare iframe before its frame element exists.
     const chatIframe = document.getElementById('chatframe');
-    if (chatIframe && !chatIframe.hidden && !chatClosed) {
-      return true;
-    }
+    if (chatIframe && !chatIframe.hidden) return true;
 
-    // 5. Engagement panels (Ask AI, conversational AI, transcripts, chapters, etc.)
+    // panels-expanded is only set once a panel is genuinely open.
+    const watchEl = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
+    if (watchEl && hasAttr(watchEl, 'panels-expanded')) return true;
+
+    // Engagement panels (Ask AI, conversational AI, transcripts, chapters, etc.)
     const panels = document.querySelectorAll('ytd-engagement-panel-section-list-renderer');
     const commentsHidden = document.documentElement.classList.contains('ytlite-comments-hide');
     for (let i = 0; i < panels.length; i++) {
@@ -177,7 +147,7 @@
       document.documentElement.classList.remove('ytlite-live');
     }
 
-    const needSidebar = isSidebarNeeded(isLive);
+    const needSidebar = isSidebarNeeded();
     if (needSidebar) {
       document.documentElement.classList.add('ytlite-sidebar-active');
       if (isLive) {
@@ -293,13 +263,15 @@
   }
 
   function openLiveChat() {
+    // Custom-element methods (setCollapsedState / onShowHideChat) live on the page
+    // world prototypes, so the request is handed to player.js. The DOM fallbacks
+    // below work from this world and cover a closed chat panel.
+    try {
+      window.dispatchEvent(new CustomEvent('ytlite-open-chat'));
+    } catch (_) {}
+
     const chat = document.querySelector('ytd-live-chat-frame, #chat');
     if (chat) {
-      if (typeof chat.setCollapsedState === 'function') {
-        chat.setCollapsedState(false);
-      } else if (typeof chat.onShowHideChat === 'function') {
-        chat.onShowHideChat();
-      }
       chat.removeAttribute('collapsed');
       chat.removeAttribute('hidden');
       chat.removeAttribute('hide-chat-frame');
@@ -598,7 +570,6 @@
     cachedIsLive = false;
     cachedDefinitive = false;
     eventLiveSignal = null;
-    scannedVideoId = null;
     const navUrl = getUrlFromEvent(e);
     const willBeWatch = navUrl ? isWatchUrl(navUrl) : isWatchPage();
     if (willBeWatch) {
