@@ -164,8 +164,10 @@ describe('comments: live stream handling', () => {
     });
     env.advance(4000);
     const btn = $$(env, '.ytlite-comments-btn');
-    // Either the comments button is absent or it is the live "Show chat" variant.
-    if (btn) expect(btn.textContent).toBe('Show chat');
+    // The button must exist (otherwise a live page with closed chat would offer no
+    // way to open it) and it must be the live "Show chat" variant.
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toBe('Show chat');
   });
 
   test('collapsed live chat does not keep the sidebar active', () => {

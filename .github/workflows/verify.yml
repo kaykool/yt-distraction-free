@@ -1,0 +1,51 @@
+name: verify
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Fast gate: no browser. Enforces the AGENTS.md §3 guardrails and every
+      # behavioral unit test.
+      - name: Unit suite
+        run: bun test
+
+      # The checks below drive a real Chrome, because selector validity, shim/Blink
+      # parity and computed-style assertions cannot be proven without one.
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+        id: setup-chrome
+
+      - name: Shim vs Blink selector parity
+        env:
+          CHROME_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: bun run test:blink
+
+      - name: Selector validity against live YouTube
+        env:
+          CHROME_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
+        # A YouTube build change or a network failure must not fail unrelated PRs.
+        continue-on-error: true
+        run: bun run verify:dom
+
+      - name: Behavioral CSS and layout promises
+        env:
+          CHROME_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
+        continue-on-error: true
+        run: bun run verify:css

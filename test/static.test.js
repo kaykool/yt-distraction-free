@@ -50,7 +50,22 @@ describe('manifest.json', () => {
     expect(manifest.permissions).toEqual(['declarativeNetRequest']);
     expect(manifest.permissions).not.toContain('tabs');
     expect(manifest.permissions).not.toContain('webRequest');
-    expect(manifest.host_permissions).toEqual(['*://*.youtube.com/*']);
+    expect(manifest.host_permissions).toEqual(['*://www.youtube.com/*', '*://youtube.com/*']);
+  });
+
+  test('never runs on non-YouTube subdomains', () => {
+    // Regression: *://*.youtube.com/* also matched music.youtube.com, where hide.css
+    // silently restyled elements the extension was never meant to touch.
+    const patterns = [
+      ...manifest.host_permissions,
+      ...manifest.content_scripts.flatMap((cs) => cs.matches),
+    ];
+    for (const p of patterns) {
+      expect(p).not.toContain('*.youtube.com');
+    }
+    for (const cs of manifest.content_scripts) {
+      expect(cs.matches).toEqual(['*://www.youtube.com/*', '*://youtube.com/*']);
+    }
   });
 });
 
@@ -79,7 +94,7 @@ describe('rules.json (declarative ad/telemetry blocking)', () => {
     for (const r of rules) {
       const scoped = r.condition.initiatorDomains || r.condition.requestDomains;
       expect(Array.isArray(scoped) && scoped.length > 0).toBe(true);
-      for (const d of scoped) expect(d).toMatch(/youtube\.com$/);
+      expect(scoped).toEqual(['www.youtube.com']);
     }
   });
 
@@ -88,7 +103,15 @@ describe('rules.json (declarative ad/telemetry blocking)', () => {
       const rule = rules.find((r) => r.condition.urlFilter.includes(needle));
       // Third-party hostnames cannot be matched by requestDomains, so these must
       // gate on who is asking, not on where the request goes.
-      expect(rule.condition.initiatorDomains).toEqual(['youtube.com']);
+      expect(rule.condition.initiatorDomains).toEqual(['www.youtube.com']);
+    }
+  });
+
+  test('no rule is scoped to a YouTube subdomain other than www', () => {
+    // music.youtube.com and m.youtube.com are separate products with their own DOM.
+    for (const r of rules) {
+      const scoped = r.condition.initiatorDomains || r.condition.requestDomains || [];
+      expect(scoped.some((d) => d.startsWith('music.') || d.startsWith('m.'))).toBe(false);
     }
   });
 });
@@ -156,5 +179,27 @@ describe('playback quality is never touched while audio-only is off', () => {
     for (const method of ['getVideoData', 'setCollapsedState', 'onShowHideChat']) {
       expect(src.includes(method)).toBe(false);
     }
+  });
+});
+
+describe('continuation and legacy-cleanup scoping', () => {
+  test('the continuation click is scoped to the continuation element', () => {
+    // Regression: a bare [role="button"] inside #comments can match the sort menu,
+    // so the click opened a menu instead of loading comments.
+    const src = read('comments.js');
+    const call = src.match(/const continuation = comments\.querySelector\(([^)]*)\)/);
+    expect(call).not.toBeNull();
+    expect(call[1]).toContain('ytd-continuation-item-renderer');
+    const loose = src.match(/comments\.querySelector\([^)]*\[role="button"\][^)]*\)/);
+    expect(loose).toBeNull();
+  });
+
+  test('background.js only ever removes its own legacy rule ids', () => {
+    // Regression: the handler removed every dynamic rule, so a future build's
+    // rules would be wiped on each install.
+    const src = read('background.js');
+    expect(src.includes('LEGACY_RULE_IDS')).toBe(true);
+    expect(/existing\.map\(\s*\(?r\)?\s*=>\s*r\.id\s*\)\s*;?\s*$/.test(src)).toBe(false);
+    expect(src.includes('filter((id) => present.has(id))')).toBe(true);
   });
 });

@@ -32,30 +32,66 @@ class ClassList {
 
 class EventTargetBase {
   constructor() { this._listeners = new Map(); }
-  addEventListener(type, fn, _opts) {
+  addEventListener(type, fn, opts) {
     if (typeof fn !== 'function') return;
     if (!this._listeners.has(type)) this._listeners.set(type, []);
-    this._listeners.get(type).push(fn);
+    const options = typeof opts === 'boolean' ? { capture: opts } : (opts || {});
+    this._listeners.get(type).push({
+      fn,
+      capture: Boolean(options.capture),
+      once: Boolean(options.once),
+      passive: Boolean(options.passive),
+    });
   }
-  removeEventListener(type, fn) {
+  removeEventListener(type, fn, opts) {
     const arr = this._listeners.get(type);
     if (!arr) return;
-    const i = arr.indexOf(fn);
+    const capture = typeof opts === 'boolean' ? opts : Boolean(opts && opts.capture);
+    const i = arr.findIndex((l) => l.fn === fn && l.capture === capture);
     if (i >= 0) arr.splice(i, 1);
   }
-  _emit(event) {
+  // Runs the listeners for one node in one phase. `once` listeners are removed
+  // before invocation, matching the spec. stopImmediatePropagation halts the rest
+  // of this node's listeners; stopPropagation only halts later nodes.
+  _emit(event, capture) {
     const arr = this._listeners.get(event.type);
-    if (arr) arr.slice().forEach((fn) => fn(event));
+    if (!arr || arr.length === 0) return;
+    for (const listener of arr.slice()) {
+      if (listener.capture !== capture) continue;
+      if (listener.once) {
+        const live = this._listeners.get(event.type);
+        const idx = live.indexOf(listener);
+        if (idx >= 0) live.splice(idx, 1);
+      }
+      listener.fn(event);
+      if (event._immediateStopped) return;
+    }
   }
   dispatchEvent(event) {
     event.target = this;
+    event._stopped = false;
+    event._immediateStopped = false;
+    // Capture phase: root -> target.
+    const chain = [];
     let node = this;
     while (node) {
-      node._emit(event);
-      if (!event.bubbles) break;
+      chain.push(node);
       node = node.parentElement || node._parentTarget || null;
     }
-    if (event.bubbles) globalThis.__window?._emit(event);
+    for (let i = chain.length - 1; i >= 0; i--) {
+      chain[i]._emit(event, true);
+      if (event._stopped) return !event.defaultPrevented;
+    }
+    // Target + bubble phase: target -> root.
+    chain[0]._emit(event, false);
+    if (event._stopped) return !event.defaultPrevented;
+    if (event.bubbles) {
+      for (let i = 1; i < chain.length; i++) {
+        chain[i]._emit(event, false);
+        if (event._stopped) return !event.defaultPrevented;
+      }
+      globalThis.__window?._emit(event, false);
+    }
     return !event.defaultPrevented;
   }
 }
@@ -253,9 +289,11 @@ class Event {
     this.defaultPrevented = false;
     this.target = null;
     this._stopped = false;
+    this._immediateStopped = false;
   }
   preventDefault() { this.defaultPrevented = true; }
   stopPropagation() { this._stopped = true; }
+  stopImmediatePropagation() { this._stopped = true; this._immediateStopped = true; }
 }
 class CustomEvent extends Event {
   constructor(type, init = {}) { super(type, init); this.detail = init.detail ?? null; }
