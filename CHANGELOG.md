@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/kaykool/yt-distraction-free/compare/v0.4.0...v0.5.0) (2026-09-23)
+
+
+### Features
+
+* relabel block video button to AudioOnly with YouTube red/grey state colors ([95a35b3](https://github.com/kaykool/yt-distraction-free/commit/95a35b389116969a7917dbf025fb7d527b1efb71))
+
+
+### Bug Fixes
+
+* ship player.js and icons in release archive ([b3eeb0a](https://github.com/kaykool/yt-distraction-free/commit/b3eeb0ae37236d5088371438853c40e577c9063e))
+
 ## [0.4.0](https://github.com/kaykool/yt-distraction-free/compare/v0.3.1...v0.4.0) (2026-09-22)
 
 
