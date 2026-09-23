@@ -1,0 +1,13 @@
+{
+  "name": "yt-distraction-free",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "description": "Dev tooling for the YT Distraction Free extension (the shipped extension itself has zero dependencies).",
+  "scripts": {
+    "test": "bun test test/",
+    "bench": "bun run bench/bench.js",
+    "bench:update": "bun run bench/bench.js --write",
+    "verify:dom": "bun run bench/verify-dom.js"
+  }
+}
