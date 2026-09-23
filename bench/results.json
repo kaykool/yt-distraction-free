@@ -1,0 +1,48 @@
+{
+  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "runs": 3,
+  "settleMs": 9000,
+  "timestamp": "2026-09-23T08:05:26.349Z",
+  "baseline": {
+    "domNodes": 5171,
+    "layoutNodes": 2177,
+    "layoutFrames": 2,
+    "nodesMetric": 16731,
+    "layoutCount": 159,
+    "recalcStyleCount": 236,
+    "layoutDuration": 0.141106,
+    "recalcStyleDuration": 0.234752,
+    "jsHeapUsed": 78511392,
+    "taskDuration": 3.836961,
+    "reflowMs": 1.4033333333830038,
+    "classes": [],
+    "button": false
+  },
+  "extension": {
+    "domNodes": 5617,
+    "layoutNodes": 818,
+    "layoutFrames": 2,
+    "nodesMetric": 19058,
+    "layoutCount": 134,
+    "recalcStyleCount": 216,
+    "layoutDuration": 0.105905,
+    "recalcStyleDuration": 0.162638,
+    "jsHeapUsed": 81704128,
+    "taskDuration": 3.656938,
+    "reflowMs": 0.6399999999751648,
+    "classes": [
+      "ytlite-comments-hide"
+    ],
+    "button": true
+  },
+  "reduction": {
+    "domNodes": "-8.6%",
+    "layoutNodes": "62.4%",
+    "forcedReflow": "54.4%",
+    "layoutCount": "15.7%",
+    "recalcStyleCount": "8.5%",
+    "layoutDuration": "24.9%",
+    "recalcStyleDuration": "30.7%",
+    "jsHeap": "-4.1%"
+  }
+}
