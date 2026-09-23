@@ -23,7 +23,8 @@
   "content_scripts": [
     {
       "matches": [
-        "*://*.youtube.com/*"
+        "*://www.youtube.com/*",
+        "*://youtube.com/*"
       ],
       "js": [
         "start.js"
@@ -35,7 +36,8 @@
     },
     {
       "matches": [
-        "*://*.youtube.com/*"
+        "*://www.youtube.com/*",
+        "*://youtube.com/*"
       ],
       "js": [
         "player.js"
@@ -45,7 +47,8 @@
     },
     {
       "matches": [
-        "*://*.youtube.com/*"
+        "*://www.youtube.com/*",
+        "*://youtube.com/*"
       ],
       "js": [
         "comments.js"
@@ -66,6 +69,7 @@
     "declarativeNetRequest"
   ],
   "host_permissions": [
-    "*://*.youtube.com/*"
+    "*://www.youtube.com/*",
+    "*://youtube.com/*"
   ]
 }
