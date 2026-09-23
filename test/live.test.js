@@ -1,17 +1,26 @@
 // Verifies live-stream detection precedence: authoritative YouTube event payloads
-// must win over DOM/script inspection, and the fragile inline-script scan must
-// never run once an event signal has been observed.
+// must win over DOM inspection, the MAIN-world player flag published by player.js
+// must be honoured, and the isolated world must never try to call page-JS player
+// methods (they are expandos that do not cross the world boundary) nor scan
+// inline bootstrap JSON.
 import { test, expect, describe } from 'bun:test';
 import { boot, dispatch } from './helpers.js';
 
 const cls = (env) => env.document.documentElement.classList;
 
+// The MAIN world publishes the player's authoritative answer on <html>; this is
+// what player.js does and what comments.js reads. Only positives are published.
+function publishPlayerLive(env, videoId = 'abc123') {
+  env.document.documentElement.setAttribute('data-ytlite-live', 'true');
+  env.document.documentElement.setAttribute('data-ytlite-video', videoId);
+}
+
 function countScriptScans(env) {
-  // The last-resort path calls querySelectorAll('script:not([src])').
+  // The old last-resort path called querySelectorAll('script:not([src])').
   const state = { calls: 0 };
   const orig = env.document.querySelectorAll.bind(env.document);
   env.document.querySelectorAll = (sel) => {
-    if (sel.includes('script:not')) state.calls++;
+    if (sel.includes('script')) state.calls++;
     return orig(sel);
   };
   return state;
@@ -49,7 +58,7 @@ describe('live detection: event payload precedence', () => {
     expect(cls(env).contains('ytlite-live')).toBe(false);
   });
 
-  test('event signal means the inline-script scan is never performed', () => {
+  test('event signal means no DOM/script fallback probing is needed', () => {
     const { env } = boot();
     dispatch(env, env.document, 'yt-navigate-finish', {
       playerResponse: { videoDetails: { isLive: false } },
@@ -61,13 +70,63 @@ describe('live detection: event payload precedence', () => {
   });
 });
 
+describe('live detection: MAIN-world player flag', () => {
+  test('the published flag is honoured when no event payload exists', () => {
+    const { env } = boot();
+    publishPlayerLive(env);
+    dispatch(env, env.document, 'yt-page-data-updated', {});
+    env.advance(700);
+    expect(cls(env).contains('ytlite-live')).toBe(true);
+  });
+
+  test('an absent flag is not treated as a negative answer', () => {
+    // The flag is only ever published positive. Absence must fall through to the
+    // other cues rather than concluding "not live".
+    const { env, parts } = boot();
+    parts.root.setAttribute('live', '');
+    expect(env.document.documentElement.hasAttribute('data-ytlite-live')).toBe(false);
+    dispatch(env, env.document, 'yt-page-data-updated', {});
+    env.advance(700);
+    expect(cls(env).contains('ytlite-live')).toBe(true);
+  });
+
+  test('inline bootstrap JSON is never scanned, even as a last resort', () => {
+    // The scan was removed: player.js publishes the authoritative answer instead,
+    // so the isolated world no longer touches megabyte-sized inline scripts.
+    const { env } = boot();
+    const script = env.document.createElement('script');
+    script.textContent = 'var ytInitialPlayerResponse = {"videoDetails":{"isLive":true,"videoId":"abc123"}};';
+    env.document.head.appendChild(script);
+    const scans = countScriptScans(env);
+    dispatch(env, env.document, 'yt-page-data-updated', {});
+    env.advance(700);
+    expect(scans.calls).toBe(0);
+  });
+
+  test('a flag published for another video is not trusted', () => {
+    const { env } = boot();
+    publishPlayerLive(env, 'some-other-video');
+    dispatch(env, env.document, 'yt-page-data-updated', {});
+    env.advance(700);
+    expect(cls(env).contains('ytlite-live')).toBe(false);
+  });
+
+  test('the isolated world never calls player methods that only exist in MAIN', () => {
+    // Regression: getVideoData() is a page-JS expando, always undefined here.
+    const { env, parts } = boot();
+    let called = false;
+    parts.moviePlayer.getVideoData = () => { called = true; return { isLive: true }; };
+    dispatch(env, env.document, 'yt-page-data-updated', {});
+    env.advance(700);
+    expect(called).toBe(false);
+  });
+});
+
 describe('live detection: cache correctness', () => {
   test('an early negative probe does not permanently strand a later live signal', () => {
     // Regression: isLiveVideo() used to cache "not live" for the video id even when
     // nothing had hydrated yet, so a later authoritative live payload was ignored.
-    const { env, parts } = boot();
-    // Force an early probe with no signal available at all (player not ready).
-    parts.moviePlayer.getVideoData = () => undefined;
+    const { env } = boot();
     dispatch(env, env.document, 'yt-page-data-updated', {});
     env.advance(700);
     expect(cls(env).contains('ytlite-live')).toBe(false);
@@ -80,10 +139,11 @@ describe('live detection: cache correctness', () => {
     expect(cls(env).contains('ytlite-live')).toBe(true);
   });
 
-  test('a definitive non-live answer is cached and reused', () => {
+  test('a definitive answer is cached and reused', () => {
     const { env, parts } = boot();
-    parts.moviePlayer.getVideoData = () => ({ isLive: false });
-    dispatch(env, env.document, 'yt-page-data-updated', {});
+    dispatch(env, env.document, 'yt-navigate-finish', {
+      playerResponse: { videoDetails: { isLive: false } },
+    });
     env.advance(700);
     expect(cls(env).contains('ytlite-live')).toBe(false);
     // Flip the DOM cue; the cached definitive negative must still win.
@@ -102,30 +162,9 @@ describe('live detection: fallbacks when no event payload is available', () => {
     expect(cls(env).contains('ytlite-live')).toBe(true);
   });
 
-  test('player getVideoData() is used before any script scan', () => {
-    const { env, parts } = boot();
-    parts.moviePlayer.getVideoData = () => ({ isLive: true, video_id: 'abc123' });
-    const scans = countScriptScans(env);
-    dispatch(env, env.document, 'yt-page-data-updated', {});
-    env.advance(700);
-    expect(cls(env).contains('ytlite-live')).toBe(true);
-    expect(scans.calls).toBe(0);
-  });
-
-  test('inline bootstrap JSON is the last resort and still detects live', () => {
+  test('a broken published flag does not throw and falls through safely', () => {
     const { env } = boot();
-    const script = env.document.createElement('script');
-    script.textContent = 'var ytInitialPlayerResponse = {"videoDetails":{"isLive":true,"videoId":"abc123"}};';
-    env.document.head.appendChild(script);
-    dispatch(env, env.document, 'yt-page-data-updated', {});
-    env.advance(700);
-    expect(cls(env).contains('ytlite-live')).toBe(true);
-  });
-
-  test('a broken player API does not throw and falls through safely', () => {
-    const { env, parts } = boot();
-    parts.moviePlayer.getVideoData = () => { throw new Error('detached'); };
+    env.document.documentElement.setAttribute('data-ytlite-live', 'true');
     expect(() => { dispatch(env, env.document, 'yt-page-data-updated', {}); env.advance(700); }).not.toThrow();
-    expect(cls(env).contains('ytlite-live')).toBe(false);
   });
 });

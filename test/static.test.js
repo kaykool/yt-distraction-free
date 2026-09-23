@@ -72,6 +72,25 @@ describe('rules.json (declarative ad/telemetry blocking)', () => {
       expect(filters.some((f) => f.includes(needle))).toBe(true);
     }
   });
+
+  test('every rule is scoped to YouTube, never global', () => {
+    // Regression: unscoped rules blocked DoubleClick/GA on every site the user
+    // visited, despite the extension advertising itself as YouTube-only.
+    for (const r of rules) {
+      const scoped = r.condition.initiatorDomains || r.condition.requestDomains;
+      expect(Array.isArray(scoped) && scoped.length > 0).toBe(true);
+      for (const d of scoped) expect(d).toMatch(/youtube\.com$/);
+    }
+  });
+
+  test('tracker requests are scoped by initiator so only YouTube loses them', () => {
+    for (const needle of ['doubleclick.net', 'google-analytics.com', 'googlesyndication.com', 'googleadservices.com']) {
+      const rule = rules.find((r) => r.condition.urlFilter.includes(needle));
+      // Third-party hostnames cannot be matched by requestDomains, so these must
+      // gate on who is asking, not on where the request goes.
+      expect(rule.condition.initiatorDomains).toEqual(['youtube.com']);
+    }
+  });
 });
 
 describe('performance guardrails (AGENTS.md §3)', () => {
@@ -102,5 +121,40 @@ describe('performance guardrails (AGENTS.md §3)', () => {
 
   test('ambient canvas and transitions are neutralized', () => {
     expect(css.includes('.ytp-ambient-canvas')).toBe(true);
+  });
+
+  test('the default suite stays browser-free', () => {
+    // `bun test` must not launch Chrome. Anything needing a browser lives in bench/.
+    const testFiles = fs.readdirSync(path.join(ROOT, 'test'))
+      .filter((f) => f.endsWith('.test.js') && f !== 'static.test.js');
+    expect(testFiles.length).toBeGreaterThan(0);
+    for (const f of testFiles) {
+      const src = read(path.join('test', f)).replace(/\/\/[^\n]*/g, '');
+      expect(/from\s+['"][^'"]*bench\//.test(src)).toBe(false);
+      expect(/\blaunchPage\b/.test(src)).toBe(false);
+    }
+  });
+});
+
+describe('playback quality is never touched while audio-only is off', () => {
+  test('player.js only ever forces 144p, never a higher level', () => {
+    // Regression: applyQuality('480') pinned 480p on every load and SPA navigation,
+    // overriding whatever quality the user had selected in YouTube's own menu.
+    const src = read('player.js');
+    const applied = [...src.matchAll(/applyQuality\(([^)]*)\)/g)].map((m) => m[1].trim());
+    expect(applied.length).toBeGreaterThan(0);
+    for (const arg of applied) {
+      expect(/^'144'$|^target$|^previous$/.test(arg)).toBe(true);
+    }
+    expect(/applyQuality\(\s*'480'/.test(src)).toBe(false);
+  });
+
+  test('the isolated-world script never calls page-JS player methods', () => {
+    // getVideoData / setCollapsedState / onShowHideChat are page-world expandos and
+    // are always undefined in the isolated world content scripts run in.
+    const src = read('comments.js').replace(/\/\/[^\n]*/g, '');
+    for (const method of ['getVideoData', 'setCollapsedState', 'onShowHideChat']) {
+      expect(src.includes(method)).toBe(false);
+    }
   });
 });
