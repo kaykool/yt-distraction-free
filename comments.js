@@ -488,7 +488,8 @@
       }
     });
 
-    const target = document.querySelector('.html5-video-player, #movie_player, #ytd-player, #player') || document.body;
+    const target = document.querySelector('.html5-video-player, #movie_player, #ytd-player, #player, #player-container-outer, #primary-inner');
+    if (!target) return;
     videoObserver.observe(target, { childList: true, subtree: true });
 
     videoObserverSafetyTimer = setTimeout(() => {
