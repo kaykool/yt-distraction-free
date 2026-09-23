@@ -238,8 +238,12 @@
       comments.scrollIntoView({ block: 'start', behavior: 'auto' });
     }
 
-    // Trigger internal continuation button if mounted
-    const loadBtn = comments.querySelector('ytd-continuation-item-renderer button, tp-yt-paper-button, [role="button"]');
+    // Trigger the continuation element's own button if it is mounted. Scoped to
+    // ytd-continuation-item-renderer on purpose: a bare [role="button"] inside
+    // #comments can match the sort menu or a reply toggle, and clicking that would
+    // open a menu instead of loading comments.
+    const continuation = comments.querySelector('ytd-continuation-item-renderer');
+    const loadBtn = continuation && continuation.querySelector('button, tp-yt-paper-button, [role="button"]');
     if (loadBtn && typeof loadBtn.click === 'function') {
       loadBtn.click();
     }
