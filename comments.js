@@ -14,17 +14,47 @@
 
   let cachedVideoId = null;
   let cachedIsLive = false;
+  let cachedDefinitive = false; // true when cachedIsLive came from an authoritative source
+
+  // Live status supplied by YouTube's own lifecycle payloads. Authoritative and
+  // free, so it is preferred over any DOM/script inspection.
+  let eventLiveSignal = null; // { videoId, isLive }
+  let scannedVideoId = null; // video id whose bootstrap JSON we already inspected
+
+  function videoIdFromUrl() {
+    const match = location.search && location.search.match(/[?&]v=([^&#]+)/);
+    return match ? match[1] : null;
+  }
+
+  function cacheLive(videoId, isLive, definitive = true) {
+    if (videoId) {
+      cachedVideoId = videoId;
+      cachedIsLive = isLive;
+      cachedDefinitive = definitive;
+    }
+    return isLive;
+  }
 
   function isLiveVideo() {
     if (location.pathname.startsWith('/live')) return true;
 
-    const match = location.search && location.search.match(/[?&]v=([^&#]+)/);
-    const currentVideoId = match ? match[1] : null;
+    const currentVideoId = videoIdFromUrl();
 
-    if (currentVideoId && cachedVideoId === currentVideoId) {
+    // 1. Authoritative: YouTube told us via yt-navigate-finish / yt-page-data-updated.
+    //    Checked before the cache because the payload can arrive *after* an initial
+    //    probe already concluded "not live" on a not-yet-hydrated page.
+    if (eventLiveSignal && eventLiveSignal.videoId === currentVideoId) {
+      return cacheLive(currentVideoId, eventLiveSignal.isLive);
+    }
+
+    // 2. A definitive answer for this video id is stable. Only *definitive* results
+    //    are trusted: an early probe on a not-yet-hydrated page can miss a live
+    //    stream, so those indeterminate negatives must not be cached.
+    if (currentVideoId && cachedVideoId === currentVideoId && cachedDefinitive) {
       return cachedIsLive;
     }
 
+    // 3. Cheap, stable DOM attributes.
     const watchEl = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
     if (watchEl && (
       hasAttr(watchEl, 'live') ||
@@ -32,34 +62,47 @@
       hasAttr(watchEl, 'live-chat-present-and-expanded') ||
       hasAttr(watchEl, 'should-stamp-chat')
     )) {
-      if (currentVideoId) { cachedVideoId = currentVideoId; cachedIsLive = true; }
-      return true;
+      return cacheLive(currentVideoId, true);
     }
 
     const badge = document.querySelector('.ytp-live-badge');
     if (badge && (hasAttr(badge, 'disabled') || (badge.classList && badge.classList.contains('ytp-live-badge-is-livehead')))) {
-      if (currentVideoId) { cachedVideoId = currentVideoId; cachedIsLive = true; }
-      return true;
+      return cacheLive(currentVideoId, true);
     }
 
-    const scripts = document.querySelectorAll('script:not([src])');
-    for (let i = 0; i < scripts.length; i++) {
-      const txt = scripts[i].textContent;
-      if (txt && (txt.includes('ytInitialPlayerResponse') || txt.includes('ytInitialData'))) {
+    // 4. Player API: no script parsing, no JSON scanning.
+    const player = document.getElementById('movie_player');
+    if (player && typeof player.getVideoData === 'function') {
+      try {
+        const data = player.getVideoData();
+        if (data && typeof data.isLive === 'boolean') {
+          return cacheLive(currentVideoId, data.isLive);
+        }
+      } catch (_) {}
+    }
+
+    // 5. Last resort: scan the inline bootstrap JSON. Only reached on a cold load
+    //    where no lifecycle payload was observed; kept narrow and bail-early.
+    if (!eventLiveSignal && scannedVideoId !== currentVideoId) {
+      const scripts = document.querySelectorAll('script:not([src])');
+      for (let i = 0; i < scripts.length; i++) {
+        const txt = scripts[i].textContent;
+        if (!txt) continue;
+        if (!txt.includes('ytInitialPlayerResponse') && !txt.includes('ytInitialData')) continue;
+        // Bootstrap JSON exists: this is now a definitive answer, so it is safe to
+        // skip the scan for the rest of this video id.
+        scannedVideoId = currentVideoId;
         const isLive = txt.includes('"isLive":true') || txt.includes('"isLiveContent":true') || txt.includes('liveChatRenderer');
         if (isLive && (!currentVideoId || txt.includes(currentVideoId))) {
-          if (currentVideoId) { cachedVideoId = currentVideoId; cachedIsLive = true; }
-          return true;
+          return cacheLive(currentVideoId, true);
         }
         break;
       }
     }
 
-    if (currentVideoId) {
-      cachedVideoId = currentVideoId;
-      cachedIsLive = false;
-    }
-    return false;
+    // No authoritative source was available yet: report "not live" for now without
+    // committing it to the cache, so a later event/player signal can still win.
+    return cacheLive(currentVideoId, false, false);
   }
 
   function isLiveChatClosed(chatFrame = document.querySelector('ytd-live-chat-frame, #chat')) {
@@ -478,8 +521,6 @@
     if (!isWatchPage()) return;
     if (videoToggleBtn && videoToggleBtn.isConnected) return;
 
-    // Resolve the target before creating the observer: assigning the observer first
-    // and then bailing out would leak an unbound observer with no safety timeout.
     const target = document.querySelector('.html5-video-player, #movie_player, #ytd-player, #player, #player-container-outer, #primary-inner');
     if (!target) return;
 
@@ -555,6 +596,9 @@
     clearSidebarTimers();
     cachedVideoId = null;
     cachedIsLive = false;
+    cachedDefinitive = false;
+    eventLiveSignal = null;
+    scannedVideoId = null;
     const navUrl = getUrlFromEvent(e);
     const willBeWatch = navUrl ? isWatchUrl(navUrl) : isWatchPage();
     if (willBeWatch) {
@@ -587,9 +631,11 @@
       pr?.liveChatRenderer
     );
     const match = location.search && location.search.match(/[?&]v=([^&#]+)/);
-    if (match) {
+    if (match && (pr || resp)) {
+      // Record the authoritative signal so isLiveVideo() never has to scan scripts.
+      eventLiveSignal = { videoId: match[1], isLive: isLiveFromEvent || hasChatFromEvent };
       cachedVideoId = match[1];
-      cachedIsLive = isLiveFromEvent || hasChatFromEvent;
+      cachedIsLive = eventLiveSignal.isLive;
     }
     if (isLiveFromEvent || hasChatFromEvent) {
       document.documentElement.classList.add('ytlite-live');
@@ -613,7 +659,17 @@
     }
   }
 
-  function handleDataUpdated() {
+  function handleDataUpdated(e) {
+    const resp = e?.detail?.response;
+    const pr = e?.detail?.playerResponse || resp?.playerResponse;
+    if (pr || resp) {
+      const videoId = videoIdFromUrl();
+      const isLive = Boolean(pr?.videoDetails?.isLive || pr?.videoDetails?.isLiveContent) ||
+        Boolean(resp?.contents?.twoColumnWatchNextResults?.conversationBar?.liveChatRenderer ||
+                resp?.contents?.twoColumnWatchNextResults?.conversationBar?.liveChatRendererModel ||
+                pr?.liveChatRenderer);
+      if (videoId) eventLiveSignal = { videoId, isLive };
+    }
     updateSidebarState();
     if (isWatchPage()) {
       placeVideoToggleButton();
