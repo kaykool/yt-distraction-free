@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.1](https://github.com/kaykool/yt-distraction-free/compare/v0.5.0...v0.5.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* never create video toggle observer without a target ([cd5e6d1](https://github.com/kaykool/yt-distraction-free/commit/cd5e6d1345d149d655d33e614a65b9b085e93b2c))
+* never fall back to document.body in video toggle observer ([79f01d9](https://github.com/kaykool/yt-distraction-free/commit/79f01d9f2f40ca5e0bd88c59c219850eb2055cbf))
+* scope the continuation click and legacy rule cleanup ([8e99b8e](https://github.com/kaykool/yt-distraction-free/commit/8e99b8e05492ba5739dd66393c696cc391ee18a1))
+* stop overriding user playback quality and scope ad blocking to YouTube ([284be01](https://github.com/kaykool/yt-distraction-free/commit/284be01c64e66b4f4faad635257c7b29473b818c))
+* stop running or blocking on YouTube subdomains ([6b79cb0](https://github.com/kaykool/yt-distraction-free/commit/6b79cb0faf0fe3d0b004452564cef3f375f9fb25))
+
+
+### Performance Improvements
+
+* add reproducible benchmark and live dom verifier ([d49402a](https://github.com/kaykool/yt-distraction-free/commit/d49402acd826763492205c8096dac353409003bb))
+* prefer lifecycle payloads for live detection ([a9f4e3b](https://github.com/kaykool/yt-distraction-free/commit/a9f4e3ba56edbb53c6c468c688c9dc5bd2d41001))
+
 ## [0.5.0](https://github.com/kaykool/yt-distraction-free/compare/v0.4.0...v0.5.0) (2026-09-23)
 
 

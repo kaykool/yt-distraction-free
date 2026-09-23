@@ -1,6 +1,6 @@
 {
   "name": "yt-distraction-free",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "description": "Dev tooling for the YT Distraction Free extension (the shipped extension itself has zero dependencies).",
