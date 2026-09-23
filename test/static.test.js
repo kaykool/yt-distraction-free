@@ -31,9 +31,19 @@ describe('manifest.json', () => {
     for (const r of manifest.declarative_net_request.rule_resources) expect(fs.existsSync(path.join(ROOT, r.path))).toBe(true);
   });
 
-  test('version matches the release-please manifest', () => {
+  test('version is consistent across manifest, package and release-please', () => {
     const rel = JSON.parse(read('.release-please-manifest.json'));
+    const pkg = JSON.parse(read('package.json'));
     expect(manifest.version).toBe(rel['.']);
+    expect(pkg.version).toBe(rel['.']);
+  });
+
+  test('release-please is configured to keep both version files in sync', () => {
+    const config = JSON.parse(read('release-please-config.json'));
+    const extraFiles = config.packages['.']['extra-files'];
+    const tracked = extraFiles.filter((e) => e.jsonpath === '$.version').map((e) => e.path);
+    expect(tracked).toContain('manifest.json');
+    expect(tracked).toContain('package.json');
   });
 
   test('requests no unnecessary (JS-cost) permissions', () => {
