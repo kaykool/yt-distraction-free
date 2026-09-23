@@ -19,14 +19,14 @@ This extension cuts all of that out. No sidebar distractions, no ambient glow, a
 ## Features
 
 - **On-Demand Comments**: Comments are completely suppressed until you explicitly click **"Show comments"**. No background continuation requests (`youtubei/v1/next`) or avatars are loaded until requested.
-- **Block Video (Audio-Only Mode)**: Toggle button in the player control overlay beside Autoplay blanks video display while audio keeps playing, cutting GPU frame compositing and decoding overhead. State is remembered across videos.
+- **Block Video (Audio-Only Mode)**: Toggle button in the player control overlay beside Autoplay blanks video display while audio keeps playing, cutting GPU frame compositing and decoding overhead. State is remembered across videos. While audio-only is **off**, the extension never touches playback quality — your own quality selection is left exactly as YouTube set it.
 - **Distraction-Free Centered Layout**: Suppresses the right-hand sidebar recommendation column, in-feed suggested videos, and thumbnail hover-prefetches, keeping the player cleanly centered.
-- **Smart Sidebar Adaptation**: The sidebar dynamically appears when **Live Chat** or YouTube's **Ask (AI conversational panel)** / transcripts / chapters are active, and collapses back when closed.
+- **Smart Sidebar Adaptation**: The sidebar dynamically appears only when it has something to show — **Live Chat**, YouTube's **Ask (AI conversational panel)**, transcripts or chapters — and collapses back when closed.
 - **Ultra-Low Playback Overhead**:
   - **Zero ongoing observers**: The `MutationObserver` disconnects immediately once the button is mounted (0 running observers, 0 timers, 0 intervals during playback).
   - **Zero GPU Ambient Glow**: Disables `.ytp-ambient-canvas`, saving laptop battery and GPU shader execution.
   - **~62% Render Tree Reduction**: Eliminates roughly 1,350 layout boxes from Blink's layout tree and cuts forced style/layout recalculation time by ~54% (measured, reproducible — see [Benchmarks](#benchmarks)).
-- **Pure C++ Ad & Telemetry Blocking**: Uses Chrome's native Declarative Net Request (DNR) API to block third-party trackers (DoubleClick, Google Analytics, AdServices) and YouTube telemetry (`log_event`, `feedback`) with **0 JavaScript runtime cost**.
+- **Pure C++ Ad & Telemetry Blocking**: Uses Chrome's native Declarative Net Request (DNR) API to block third-party trackers (DoubleClick, Google Analytics, AdServices) and YouTube telemetry (`log_event`, `feedback`) with **0 JavaScript runtime cost**. Every rule is scoped to YouTube, so no other site you visit is affected.
 - **Long Video Focused**: YouTube Shorts remain in their native interface with default controls and comments.
 
 ---
@@ -49,15 +49,15 @@ This extension cuts all of that out. No sidebar distractions, no ambient glow, a
 ```
 yt-distraction-free/
 ├── manifest.json   # MV3 configuration & DNR ruleset definition
-├── rules.json      # DeclarativeNetRequest ad & telemetry blocking rules
+├── rules.json      # DeclarativeNetRequest ad & telemetry blocking rules (YouTube-scoped)
 ├── start.js        # Early document_start script (prevents comment flash)
-├── player.js       # MAIN world script: forces 144p/480p quality for block-video mode
+├── player.js       # MAIN world: Audio-only quality, live flag, live-chat control
 ├── comments.js     # Watch-page lifecycle & on-demand comment reveal button
 ├── hide.css        # Clean centered layout, ambient canvas & ad suppression
 ├── background.js   # One-time cleanup for legacy dynamic DNR rules
 ├── icons/          # Extension icons (16px, 32px, 48px, 128px)
 ├── test/           # Bun unit tests + DOM shim (dev only, not shipped)
-├── bench/          # Benchmark & live-DOM verifier (dev only, not shipped)
+├── bench/          # Benchmark, Blink parity test & live-DOM verifier (dev only)
 ├── README.md       # Project documentation
 └── LICENSE         # MIT License
 ```
@@ -75,6 +75,7 @@ runtime dependencies** — the extension itself stays pure vanilla JS/CSS.
 ```bash
 bun install          # no-op today; dev tools are dependency-free
 bun test             # unit suite (fast, no browser)
+bun run test:blink   # differential shim-vs-Blink selector parity (launches Chrome)
 bun run bench        # baseline vs. extension benchmark in headless Chrome
 bun run bench:update # same, and refresh bench/results.json
 bun run verify:dom   # verify every selector against the LIVE YouTube DOM
@@ -82,9 +83,10 @@ bun run verify:dom   # verify every selector against the LIVE YouTube DOM
 
 - `test/` runs the unmodified content scripts against a small DOM shim, so the
   default suite needs no browser and finishes in well under a second.
-- `test/dom.test.js` is a differential test: it builds identical markup in the shim
-  and in real Blink and asserts both engines resolve the extension's selectors the
-  same way.
+- `bench/blink-parity.js` is a differential test: it builds identical markup in the
+  shim and in real Blink and asserts both engines resolve the extension's selectors
+  the same way. It launches Chrome, so it is a separate script rather than part of
+  `bun test`.
 - `bun run verify:dom` loads the real extension into headless Chrome against
   youtube.com and checks that the structural anchors still exist and that every
   selector in `hide.css`/the scripts still parses. Run it (plus a `/live` URL when

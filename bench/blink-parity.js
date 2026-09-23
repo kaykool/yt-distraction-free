@@ -1,9 +1,13 @@
+#!/usr/bin/env bun
 // Differential test: the Bun DOM shim must resolve the selectors the extension
 // actually uses the same way real Blink does. A synthetic tree is built with the
 // identical markup in both engines and the results are compared.
+//
+// Lives in bench/ (not test/) on purpose: unlike the unit suite it launches a real
+// browser, so `bun test` stays browser-free. Run it with `bun run test:blink`.
 import { test, expect, describe } from 'bun:test';
-import { Node, Document } from './dom.js';
-import { launchPage } from '../bench/browser.js';
+import { Node, Document } from '../test/dom.js';
+import { launchPage } from './browser.js';
 
 const MARKUP = `
   <ytd-watch-flexy id="wf" live panels-expanded>
