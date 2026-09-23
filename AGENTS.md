@@ -21,21 +21,31 @@ YT Lite is a high-performance, distraction-free Chrome extension (MV3) built to 
 | --- | --- |
 | `bun test` | Fast unit suite (DOM shim + fixtures, no browser). |
 | `bun run test:blink` | Differential selector test: shim vs. real Blink. |
+| `bun run verify:dom [url]` | Live YouTube DOM check: anchors exist, every selector parses. |
+| `bun run verify:css [url]` | Live behavioral check: computed styles and layout promises hold. |
+| `bun run verify` | All four gates in sequence. Run before merging. |
 | `bun run bench` | Reproducible baseline-vs-extension benchmark in headless Chrome. |
 | `bun run bench:update` | Same, and writes `bench/results.json`. |
-| `bun run verify:dom [url]` | Checks the extension against the **live** YouTube DOM. |
-| `bun run verify:dom "https://www.youtube.com/live/..."` | Same, for a live stream (exercises chat/panel selectors). |
 
 ### Test Harness Map
 
-- `test/dom.js` — Minimal DOM/localStorage/timer/MutationObserver shim that runs the **unmodified** content scripts under `node:vm`. Only implements the surface the extension uses.
+- `test/dom.js` — Minimal DOM/localStorage/timer/MutationObserver shim that runs the **unmodified** content scripts under `node:vm`. Models listener phases (capture/bubble), `once`, and `stopPropagation`. Only implements the surface the extension uses.
 - `test/fixture.js` — Builds a YouTube-shaped DOM (`ytd-watch-flexy`, `#primary`/`#secondary`/`#below`, comment renderers, player controls, engagement panels, live chat).
+- `test/background.test.js` — Injects a fake `chrome` global and runs the real service worker under `node:vm`.
 - `bench/blink-parity.js` — Differential test that builds the same markup in the shim and in real Blink and asserts identical selector results. It lives in `bench/` because `bun test` must never launch a browser; `test/static.test.js` enforces that.
+- `bench/verify-dom.js` vs `bench/verify-css.js` — Validity versus behavior. `verify:dom` proves selectors still parse and their anchors still exist, which is **not** enough: renaming a selector to a class that never matches keeps it 100% "valid" while the feature silently stops working. `verify:css` asserts computed `display`, the player clamp, and document order, which is what catches that class of regression.
 - `bench/browser.js`, `bench/cdp.js` — Zero-dependency Chrome DevTools Protocol driver (Bun's global `WebSocket`).
 
 ### Changing the DOM shim
 
 If you touch `test/dom.js`, extend `bench/blink-parity.js` with the new selector shape so shim/Blink parity stays enforced.
+
+### Assertions Must Be Able to Fail
+
+- Never wrap an assertion in `if`: `if (el) expect(...)` passes precisely when the element is missing, which is usually the bug.
+- Prefer asserting a stable contract (computed style, document order, storage key, call arguments) over a proxy such as a raw pixel measurement. `#primary` clamps width on its own, so a removed player clamp is invisible to `getBoundingClientRect`.
+- When a check cannot fail on the current page, drive the state instead of accepting absence: inject a probe element for `.ytp-ambient-canvas`, or toggle `ytlite-sidebar-active` to exercise the reveal rule.
+- `verify:css` guards its own harness: `test/static.test.js` checks that `bun test` stays browser-free.
 
 ### World Boundaries
 
@@ -62,5 +72,5 @@ Follow these rules on every edit to prevent performance degradation:
 ## 5. Git & Workflow Standards
 
 - **Commit Messages**: Follow Conventional Commits format (`feat:`, `fix:`, `perf:`, `chore:`, `docs:`). Do not include conversational remarks, agent commentary, or reference to user prompts in commit messages.
-- **Verification**: Always verify selector accuracy against actual YouTube WebComponent DOM structures before committing. Run `bun test` plus `bun run verify:dom` (and a `/live` URL when touching chat/panel logic) before merging.
+- **Verification**: Run `bun run verify` before merging. It covers the unit suite, shim/Blink selector parity, live selector validity, and live CSS/layout behavior. Use a `/live` URL when touching chat or panel logic.
 - **Observers**: Creating an observer and then returning before `observe()` is a leak. Assign `observer = new MutationObserver(...)` only immediately before `observe()`, and always arm a safety timeout. `test/comments.test.js` guards this.

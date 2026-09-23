@@ -26,7 +26,7 @@ This extension cuts all of that out. No sidebar distractions, no ambient glow, a
   - **Zero ongoing observers**: The `MutationObserver` disconnects immediately once the button is mounted (0 running observers, 0 timers, 0 intervals during playback).
   - **Zero GPU Ambient Glow**: Disables `.ytp-ambient-canvas`, saving laptop battery and GPU shader execution.
   - **~62% Render Tree Reduction**: Eliminates roughly 1,350 layout boxes from Blink's layout tree and cuts forced style/layout recalculation time by ~54% (measured, reproducible — see [Benchmarks](#benchmarks)).
-- **Pure C++ Ad & Telemetry Blocking**: Uses Chrome's native Declarative Net Request (DNR) API to block third-party trackers (DoubleClick, Google Analytics, AdServices) and YouTube telemetry (`log_event`, `feedback`) with **0 JavaScript runtime cost**. Every rule is scoped to YouTube, so no other site you visit is affected.
+- **Pure C++ Ad & Telemetry Blocking**: Uses Chrome's native Declarative Net Request (DNR) API to block third-party trackers (DoubleClick, Google Analytics, AdServices) and YouTube telemetry (`log_event`, `feedback`) with **0 JavaScript runtime cost**. Every rule is scoped to `www.youtube.com`, so neither this extension nor its blocking applies to any other site, including `music.youtube.com` and `m.youtube.com`.
 - **Long Video Focused**: YouTube Shorts remain in their native interface with default controls and comments.
 
 ---
@@ -57,7 +57,7 @@ yt-distraction-free/
 ├── background.js   # One-time cleanup for legacy dynamic DNR rules
 ├── icons/          # Extension icons (16px, 32px, 48px, 128px)
 ├── test/           # Bun unit tests + DOM shim (dev only, not shipped)
-├── bench/          # Benchmark, Blink parity test & live-DOM verifier (dev only)
+├── bench/          # Benchmark, Blink parity & live DOM/CSS verifiers (dev only)
 ├── README.md       # Project documentation
 └── LICENSE         # MIT License
 ```
@@ -76,9 +76,11 @@ runtime dependencies** — the extension itself stays pure vanilla JS/CSS.
 bun install          # no-op today; dev tools are dependency-free
 bun test             # unit suite (fast, no browser)
 bun run test:blink   # differential shim-vs-Blink selector parity (launches Chrome)
+bun run verify:dom   # every selector still parses and its anchor still exists
+bun run verify:css   # computed styles and layout promises actually hold
+bun run verify       # all of the above, in sequence
 bun run bench        # baseline vs. extension benchmark in headless Chrome
 bun run bench:update # same, and refresh bench/results.json
-bun run verify:dom   # verify every selector against the LIVE YouTube DOM
 ```
 
 - `test/` runs the unmodified content scripts against a small DOM shim, so the
@@ -87,10 +89,12 @@ bun run verify:dom   # verify every selector against the LIVE YouTube DOM
   shim and in real Blink and asserts both engines resolve the extension's selectors
   the same way. It launches Chrome, so it is a separate script rather than part of
   `bun test`.
-- `bun run verify:dom` loads the real extension into headless Chrome against
-  youtube.com and checks that the structural anchors still exist and that every
-  selector in `hide.css`/the scripts still parses. Run it (plus a `/live` URL when
-  touching chat logic) before committing a selector change.
+- `verify:dom` and `verify:css` are different checks. `verify:dom` asks whether the
+  selectors are still *valid* and their anchor elements still exist. `verify:css`
+  asks whether the rules still *do* anything: computed `display`, the player clamp,
+  and document order. A selector silently renamed to a class that never matches
+  passes the first and fails the second, which is why both exist. Run both (plus a
+  `/live` URL when touching chat or panel logic) before committing a selector change.
 
 ## Benchmarks
 
