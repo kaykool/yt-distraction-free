@@ -18,6 +18,7 @@ export function buildWatchPage(doc, opts = {}) {
     isLive = false,
     panelsExpanded = false,
     liveChatClosed = false,
+    chatDisabled = false,
     adsPanel = false,
     videoId = 'abc123',
     withCommentsExtras = true,
@@ -71,8 +72,20 @@ export function buildWatchPage(doc, opts = {}) {
   // Real YouTube only mounts a live-chat frame for streams that actually have chat.
   const chatFrame = isLive ? el(doc, 'ytd-live-chat-frame') : null;
   const chatIframe = isLive ? el(doc, 'iframe', { id: 'chatframe' }) : null;
-  if (liveChatClosed && chatFrame) chatFrame.setAttribute('collapsed', '');
-  if (liveChatClosed && chatIframe) chatIframe.hidden = true;
+  // Real YouTube hides chat by collapsing the frame element; #chatframe itself is
+  // left present and not hidden (verified against live youtube.com), so the shim
+  // must not set chatIframe.hidden here.
+  if ((liveChatClosed || chatDisabled) && chatFrame) {
+    chatFrame.setAttribute('collapsed', '');
+    chatFrame.setAttribute('hide-chat-frame', '');
+  }
+  // A chat-disabled stream renders an availability message inside the collapsed
+  // frame; a user-hidden chat does not (also verified against live youtube.com).
+  if (chatDisabled && chatFrame) {
+    const msg = el(doc, 'ytd-message-renderer');
+    msg.appendChild(el(doc, 'yt-formatted-string', { id: 'message' }, 'Chat is disabled for this live stream.'));
+    chatFrame.appendChild(msg);
+  }
   if (chatFrame) secondaryInner.appendChild(chatFrame);
   if (chatIframe) secondaryInner.appendChild(chatIframe);
   secondary.appendChild(secondaryInner);
@@ -126,5 +139,5 @@ export function expandPanel(parts, which = 'comments') {
 
 export function collapseChat(parts) {
   parts.chatFrame.setAttribute('collapsed', '');
-  parts.chatIframe.hidden = true;
+  parts.chatFrame.setAttribute('hide-chat-frame', '');
 }

@@ -53,9 +53,15 @@
       return cachedIsLive;
     }
 
-    // 3. Cheap, stable DOM attributes.
+    // 3. Cheap, stable DOM attributes — but only when they describe the video in
+    //    the URL. ytd-watch-flexy is reused across SPA navigations and keeps the
+    //    previous video's [live]/[should-stamp-chat] attributes and its video-id
+    //    for over a second after the URL has already changed. Trusting those would
+    //    misclassify the new video, so a mismatch skips the DOM cues entirely.
     const watchEl = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
-    if (watchEl && (
+    const domVideoId = getAttr(watchEl, 'video-id');
+    const domIsCurrent = !currentVideoId || !domVideoId || domVideoId === currentVideoId;
+    if (domIsCurrent && watchEl && (
       hasAttr(watchEl, 'live') ||
       hasAttr(watchEl, 'is-live') ||
       hasAttr(watchEl, 'live-chat-present-and-expanded') ||
@@ -65,7 +71,7 @@
     }
 
     const badge = document.querySelector('.ytp-live-badge');
-    if (badge && (hasAttr(badge, 'disabled') || (badge.classList && badge.classList.contains('ytp-live-badge-is-livehead')))) {
+    if (domIsCurrent && badge && (hasAttr(badge, 'disabled') || (badge.classList && badge.classList.contains('ytp-live-badge-is-livehead')))) {
       return cacheLive(currentVideoId, true);
     }
 
@@ -94,6 +100,14 @@
       hasAttr(chatFrame, 'hide-chat-frame');
   }
 
+  // YouTube renders an availability message inside the collapsed chat frame when
+  // chat is disabled for the stream. The frame is otherwise indistinguishable
+  // from a user-hidden chat, so this is the only cheap way to avoid offering a
+  // Show chat button that opens an empty panel.
+  function isChatUnavailable(chatFrame = document.querySelector('ytd-live-chat-frame, #chat')) {
+    return Boolean(chatFrame && chatFrame.querySelector('ytd-message-renderer'));
+  }
+
   function isSidebarNeeded() {
     if (!isWatchPage()) return false;
 
@@ -101,11 +115,18 @@
     // with no chat would otherwise reserve ~400px of column that hide.css empties
     // (the related-video list is hidden), leaving a blank gutter next to the player.
     const chatFrame = document.querySelector('ytd-live-chat-frame, #chat');
-    if (chatFrame && !isLiveChatClosed(chatFrame)) return true;
-
-    // Live chat can also be mounted as a bare iframe before its frame element exists.
-    const chatIframe = document.getElementById('chatframe');
-    if (chatIframe && !chatIframe.hidden) return true;
+    if (chatFrame) {
+      if (!isLiveChatClosed(chatFrame) && !isChatUnavailable(chatFrame)) return true;
+    } else {
+      // Live chat can also be mounted as a bare iframe before its frame element
+      // exists. Only then is the iframe's own hidden state meaningful: YouTube
+      // hides chat by collapsing the frame element and leaves #chatframe unhidden,
+      // so checking the iframe alongside a collapsed frame would keep the sidebar
+      // open (and suppress the Show chat button) after the user hides chat, or
+      // after navigating away from a live video whose frame is still mounted.
+      const chatIframe = document.getElementById('chatframe');
+      if (chatIframe && !chatIframe.hidden) return true;
+    }
 
     // panels-expanded is only set once a panel is genuinely open.
     const watchEl = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
@@ -310,6 +331,11 @@
         disconnectObserver();
         return false;
       }
+      if (isChatUnavailable()) {
+        removeExistingButton();
+        disconnectObserver();
+        return false;
+      }
     } else {
       if (!document.documentElement.classList.contains('ytlite-comments-hide')) {
         removeExistingButton();
@@ -318,14 +344,21 @@
       }
     }
 
-    if (buttonContainer && buttonContainer.isConnected) {
+    // The button's mode is part of its identity: a same-page live-state flip must
+    // replace "Show comments" with "Show chat" (or vice versa), not reuse it.
+    const mode = isLive ? 'chat' : 'comments';
+
+    if (buttonContainer && buttonContainer.isConnected && getAttr(buttonContainer, 'data-ytlite-mode') === mode) {
       return true;
     }
 
     const existing = document.querySelector('.ytlite-button-container');
     if (existing && existing.isConnected) {
-      buttonContainer = existing;
-      return true;
+      if (getAttr(existing, 'data-ytlite-mode') === mode) {
+        buttonContainer = existing;
+        return true;
+      }
+      removeExistingButton();
     }
 
     // Find the best placement target lazily
@@ -342,6 +375,7 @@
 
       const container = document.createElement('div');
       container.className = 'ytlite-button-container';
+      container.setAttribute('data-ytlite-mode', mode);
 
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -497,7 +531,15 @@
     if (!isWatchPage()) return;
     if (videoToggleBtn && videoToggleBtn.isConnected) return;
 
-    const target = document.querySelector('.html5-video-player, #movie_player, #ytd-player, #player, #player-container-outer, #primary-inner');
+    // Query the list in order. A single querySelector would return #primary-inner
+    // (an ancestor of the player, so first in document order) and observe the
+    // whole primary column on every mutation instead of the player.
+    const targetSelectors = ['.html5-video-player', '#movie_player', '#ytd-player', '#player', '#player-container-outer', '#primary-inner'];
+    let target = null;
+    for (const sel of targetSelectors) {
+      target = document.querySelector(sel);
+      if (target) break;
+    }
     if (!target) return;
 
     videoObserver = new MutationObserver(() => {

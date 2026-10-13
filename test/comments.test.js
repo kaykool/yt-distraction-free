@@ -103,6 +103,17 @@ describe('comments: observer discipline', () => {
     expect($$(env, '.ytlite-video-toggle-btn')).toBeNull();
   });
 
+  test('video-toggle observer targets the player, not the whole primary column', () => {
+    const { env, parts } = boot({
+      mutate: ({ doc }) => {
+        doc.querySelector('.ytp-right-controls')?.remove();
+      },
+    });
+    const active = env.observers().filter((o) => o.active);
+    expect(active.length).toBe(1);
+    expect(active[0].observations[0].target).toBe(parts.moviePlayer);
+  });
+
   test('comment observer safety timeout force-disconnects a never-satisfied observer', () => {
     const { env } = boot({
       mutate: ({ doc }) => {
@@ -177,6 +188,79 @@ describe('comments: live stream handling', () => {
     });
     env.advance(4000);
     expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
+  });
+
+  test('hiding chat (collapsed frame, iframe left unhidden) closes the sidebar and offers Show chat', () => {
+    const { env, parts } = boot({
+      href: 'https://www.youtube.com/watch?v=live1',
+      fixture: { isLive: true },
+    });
+    env.advance(4000);
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(true);
+
+    // YouTube's own Hide chat: the frame is collapsed, #chatframe stays present.
+    parts.chatFrame.setAttribute('collapsed', '');
+    parts.chatFrame.setAttribute('hide-chat-frame', '');
+    dispatch(env, env.document, 'yt-chat-collapsed-changed', {});
+    env.advance(700);
+
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
+    expect($$(env, '.ytlite-comments-btn')?.textContent).toBe('Show chat');
+  });
+
+  test('a chat-disabled live stream gets no Show chat button and no sidebar', () => {
+    const { env } = boot({
+      href: 'https://www.youtube.com/watch?v=live1',
+      fixture: { isLive: true, chatDisabled: true },
+    });
+    env.advance(4000);
+    expect(cls(env).contains('ytlite-live')).toBe(true);
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
+    expect($$(env, '.ytlite-comments-btn')).toBeNull();
+  });
+
+  test('a stale collapsed chat frame after navigation does not keep the sidebar open', () => {
+    const { env, parts } = boot({
+      href: 'https://www.youtube.com/watch?v=live1',
+      fixture: { isLive: true },
+    });
+    env.advance(4000);
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(true);
+
+    // SPA navigation to a normal video. YouTube collapses the old chat frame but
+    // leaves it (and #chatframe) mounted.
+    parts.chatFrame.setAttribute('collapsed', '');
+    parts.chatFrame.setAttribute('hide-chat-frame', '');
+    env.navigate('https://www.youtube.com/watch?v=normal2');
+    dispatch(env, env.document, 'yt-navigate-start', {
+      endpoint: { commandMetadata: { webCommandMetadata: { url: '/watch?v=normal2' } } },
+    });
+    dispatch(env, env.document, 'yt-navigate-finish', {
+      playerResponse: { videoDetails: { isLive: false, isLiveContent: false } },
+    });
+    env.advance(4000);
+
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
+    expect(cls(env).contains('ytlite-comments-hide')).toBe(true);
+    expect($$(env, '.ytlite-comments-btn')?.textContent).toBe('Show comments');
+  });
+
+  test('a page that turns live after placement swaps the button to Show chat', () => {
+    const { env, parts } = boot({ href: 'https://www.youtube.com/watch?v=abc123' });
+    expect($$(env, '.ytlite-comments-btn').textContent).toBe('Show comments');
+
+    const chat = env.document.createElement('ytd-live-chat-frame');
+    chat.setAttribute('collapsed', '');
+    chat.setAttribute('hide-chat-frame', '');
+    parts.secondaryInner.appendChild(chat);
+
+    dispatch(env, env.document, 'yt-page-data-updated', {
+      playerResponse: { videoDetails: { isLive: true } },
+    });
+    env.advance(700);
+
+    expect(cls(env).contains('ytlite-live')).toBe(true);
+    expect($$(env, '.ytlite-comments-btn')?.textContent).toBe('Show chat');
   });
 });
 

@@ -168,3 +168,27 @@ describe('live detection: fallbacks when no event payload is available', () => {
     expect(() => { dispatch(env, env.document, 'yt-page-data-updated', {}); env.advance(700); }).not.toThrow();
   });
 });
+
+describe('live detection: stale DOM cues after SPA navigation', () => {
+  // ytd-watch-flexy is reused across SPA navigations; its video-id and live
+  // attributes describe the previous video for a second or more after the URL
+  // changes. A mismatched video-id must disqualify them.
+  test('a stale video-id disqualifies the live attributes', () => {
+    const { env, parts } = boot();
+    parts.root.setAttribute('video-id', 'previous-video');
+    parts.root.setAttribute('live', '');
+    parts.root.setAttribute('should-stamp-chat', '');
+    dispatch(env, env.document, 'yt-page-data-updated', {});
+    env.advance(700);
+    expect(cls(env).contains('ytlite-live')).toBe(false);
+  });
+
+  test('a matching video-id still honours the live attributes', () => {
+    const { env, parts } = boot();
+    parts.root.setAttribute('video-id', 'abc123');
+    parts.root.setAttribute('live', '');
+    dispatch(env, env.document, 'yt-page-data-updated', {});
+    env.advance(700);
+    expect(cls(env).contains('ytlite-live')).toBe(true);
+  });
+});
