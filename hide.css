@@ -1,9 +1,12 @@
 /* Comments hiding — controlled strictly by ytlite-comments-hide */
 html.ytlite-comments-hide #comments,
 html.ytlite-comments-hide ytd-comments,
-html.ytlite-comments-hide ytd-item-section-renderer[section-identifier="comment-item-section"],
-html.ytlite-comments-hide ytd-engagement-panel-section-list-renderer[target-id*="comment"],
-html.ytlite-comments-hide ytd-engagement-panel-section-list-renderer[data-target-id*="comment"] {
+html.ytlite-comments-hide
+  ytd-item-section-renderer[section-identifier='comment-item-section'],
+html.ytlite-comments-hide
+  ytd-engagement-panel-section-list-renderer[target-id*='comment'],
+html.ytlite-comments-hide
+  ytd-engagement-panel-section-list-renderer[data-target-id*='comment'] {
   display: none !important;
 }
 
@@ -14,7 +17,7 @@ html.ytlite-comments-hide ytd-engagement-panel-section-list-renderer[data-target
 #secondary ytd-compact-video-renderer,
 #secondary ytd-compact-radio-renderer,
 #secondary ytd-compact-playlist-renderer,
-#secondary ytd-item-section-renderer[section-identifier="related-items"] {
+#secondary ytd-item-section-renderer[section-identifier='related-items'] {
   display: none !important;
 }
 
@@ -73,12 +76,6 @@ ytd-watch-grid #secondary {
   display: none !important;
 }
 
-/* Ensure #secondary is completely hidden in fullscreen */
-ytd-watch-flexy[fullscreen] #secondary,
-ytd-watch-grid[fullscreen] #secondary {
-  display: none !important;
-}
-
 /* Display sidebar when live stream, live chat, or Ask / engagement panels are active */
 html.ytlite-sidebar-active ytd-watch-flexy:not([fullscreen]) #secondary,
 html.ytlite-sidebar-active ytd-watch-grid:not([fullscreen]) #secondary,
@@ -87,7 +84,10 @@ ytd-watch-grid:not([fullscreen])[panels-expanded] #secondary {
   display: block !important;
   margin-left: 24px !important;
   margin-right: 0 !important;
-  width: var(--ytd-watch-flexy-sidebar-width, var(--ytd-watch-grid-sidebar-width, 400px)) !important;
+  width: var(
+    --ytd-watch-flexy-sidebar-width,
+    var(--ytd-watch-grid-sidebar-width, 400px)
+  ) !important;
   min-width: 300px !important;
   max-width: 450px !important;
   flex: 0 0 auto !important;
@@ -96,13 +96,10 @@ ytd-watch-grid:not([fullscreen])[panels-expanded] #secondary {
 /* When sidebar is active, align #primary without margins so #columns centers #primary + #secondary together */
 html.ytlite-sidebar-active ytd-watch-flexy #primary,
 html.ytlite-sidebar-active ytd-watch-grid #primary,
-html.ytlite-sidebar-active ytd-watch-flexy[is-two-columns_] #primary,
-html.ytlite-sidebar-active ytd-watch-grid[is-two-columns_] #primary,
 ytd-watch-flexy[panels-expanded] #primary,
 ytd-watch-grid[panels-expanded] #primary {
   margin-left: 0 !important;
   margin-right: 0 !important;
-  flex: 0 1 854px !important;
 }
 
 /* Ensure secondary content (chat, Ask/engagement panels) stretches to fit sidebar width */
@@ -116,11 +113,10 @@ ytd-watch-grid[panels-expanded] #secondary-inner {
 /* Hide ad engagement panels and ad slots so ads never expand or clutter the sidebar */
 #secondary ytd-ad-slot-renderer,
 #secondary ytd-in-feed-ad-layout-renderer,
-ytd-engagement-panel-section-list-renderer[target-id*="ads"],
-ytd-engagement-panel-section-list-renderer[data-target-id*="ads"] {
+ytd-engagement-panel-section-list-renderer[target-id*='ads'],
+ytd-engagement-panel-section-list-renderer[data-target-id*='ads'] {
   display: none !important;
 }
-
 
 /* Compact player with tight height & zero vertical gap */
 ytd-watch-flexy:not([fullscreen]):not([theater]) #player-container-outer,
@@ -192,7 +188,6 @@ yt-chip-cloud-renderer,
 badge-shape,
 .ytBadgeShapeHost,
 .ytp-suggested-action {
-  background-color: var(--yt-spec-base-background, #0f0f0f) !important;
   background: var(--yt-spec-base-background, #0f0f0f) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
@@ -277,11 +272,13 @@ html.ytlite-live.ytlite-sidebar-active .ytlite-button-container {
   border-radius: 18px;
   background: var(--yt-spec-badge-chip-background, rgba(128, 128, 128, 0.15));
   color: #ffffff !important;
-  transition: background-color 0.2s ease;
 }
 
 .ytlite-comments-btn:hover {
-  background: var(--yt-spec-button-chip-background-hover, rgba(128, 128, 128, 0.25));
+  background: var(
+    --yt-spec-button-chip-background-hover,
+    rgba(128, 128, 128, 0.25)
+  );
 }
 
 .ytlite-comments-btn:active {
@@ -295,13 +292,19 @@ html.ytlite-live.ytlite-sidebar-active .ytlite-button-container {
 
 /* Promotional teaser carousel (Live chat "Open panel", shopping, products) */
 #teaser-carousel,
-yt-video-metadata-carousel-view-model,
+yt-video-metadata-carousel-view-model {
+  display: none !important;
+}
 
 /* Description box cleanup: remove Ask AI, Music/Games/info shelves, transcripts, channel/social links */
-ytd-structured-description-content-renderer ytd-video-description-transcript-section-renderer,
-ytd-structured-description-content-renderer ytd-video-description-infocards-section-renderer,
-ytd-structured-description-content-renderer ytd-video-description-music-section-renderer,
-ytd-structured-description-content-renderer ytd-video-description-course-section-renderer,
+ytd-structured-description-content-renderer
+  ytd-video-description-transcript-section-renderer,
+ytd-structured-description-content-renderer
+  ytd-video-description-infocards-section-renderer,
+ytd-structured-description-content-renderer
+  ytd-video-description-music-section-renderer,
+ytd-structured-description-content-renderer
+  ytd-video-description-course-section-renderer,
 ytd-structured-description-content-renderer ytd-horizontal-card-list-renderer,
 ytd-structured-description-content-renderer yt-video-attribute-view-model,
 ytd-structured-description-content-renderer ytd-compact-infocard-renderer,
@@ -343,7 +346,6 @@ html.ytlite-video-blocked .html5-video-player video {
   color: #aaaaaa !important;
   opacity: 0.85 !important;
   box-sizing: border-box !important;
-  transition: opacity 0.1s cubic-bezier(0, 0, 0.2, 1) !important;
 }
 
 .ytp-button.ytlite-video-toggle-btn:hover {
@@ -354,6 +356,3 @@ html.ytlite-video-blocked .html5-video-player video {
   color: #ff0000 !important;
   opacity: 1 !important;
 }
-
-
-

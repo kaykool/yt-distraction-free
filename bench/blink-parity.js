@@ -136,6 +136,7 @@ function collectSelectors() {
     'ytd-app',
     'ytd-page-manager',
     '#page-manager',
+    'ytd-page-manager, #page-manager',
     '#content',
     'ytd-app #content > ytd-page-manager > ytd-watch-flexy',
     '#secondary > ytd-watch-next-secondary-results-renderer',
@@ -176,26 +177,43 @@ function collectSelectors() {
 
 const SELECTORS = collectSelectors();
 
-const HTML_CLASSES = ['ytlite-comments-hide', 'ytlite-live', 'ytlite-sidebar-active', 'ytlite-video-blocked'];
+const HTML_CLASSES = [
+  'ytlite-comments-hide',
+  'ytlite-live',
+  'ytlite-sidebar-active',
+  'ytlite-video-blocked',
+];
 
 // --- build the same tree in the Bun shim by parsing the markup ---
 function parseInto(doc, html) {
   const tokens = html.match(/<\/?[^>]+>|[^<]+/g) || [];
   const stack = [doc.body];
   for (const tok of tokens) {
-    if (tok.startsWith('</')) { if (stack.length > 1) stack.pop(); continue; }
+    if (tok.startsWith('</')) {
+      if (stack.length > 1) stack.pop();
+      continue;
+    }
     if (tok.startsWith('<')) {
       const name = tok.match(/^<([a-zA-Z][\w-]*)/)[1];
       const node = doc.createElement(name);
       const attrs = tok.matchAll(/([\w:-]+)(?:="([^"]*)")?/g);
       let first = true;
       for (const [, k, v] of attrs) {
-        if (first) { first = false; continue; } // skip tag name
+        if (first) {
+          first = false;
+          continue;
+        } // skip tag name
         node.setAttribute(k, v === undefined ? '' : v);
       }
       stack[stack.length - 1].appendChild(node);
-      if (!tok.endsWith('/>') && !/^(script|iframe)$/i.test(name)) stack.push(node);
-      else if (/^(script|iframe)$/i.test(name) && !tok.endsWith('/>') && !tok.includes('</')) stack.push(node);
+      if (!tok.endsWith('/>') && !/^(script|iframe)$/i.test(name))
+        stack.push(node);
+      else if (
+        /^(script|iframe)$/i.test(name) &&
+        !tok.endsWith('/>') &&
+        !tok.includes('</')
+      )
+        stack.push(node);
       continue;
     }
     const text = tok.trim();
@@ -205,7 +223,9 @@ function parseInto(doc, html) {
 }
 
 function blobResults(docObject) {
-  return Object.fromEntries(SELECTORS.map((s) => [s, docObject.querySelectorAll(s).length]));
+  return Object.fromEntries(
+    SELECTORS.map((s) => [s, docObject.querySelectorAll(s).length])
+  );
 }
 
 describe('DOM shim vs Blink: selector parity', () => {
@@ -239,7 +259,10 @@ describe('DOM shim vs Blink: selector parity', () => {
     })();
 
     // Blink side
-    const page = await launchPage({ port: 9631, profileDir: '/tmp/domtest-prof' });
+    const page = await launchPage({
+      port: 9631,
+      profileDir: '/tmp/domtest-prof',
+    });
     let blinkRes;
     let blinkExtra;
     try {
@@ -280,7 +303,10 @@ describe('DOM shim vs Blink: selector parity', () => {
     }
 
     for (const sel of SELECTORS) {
-      expect({ sel, count: shimRes[sel] }).toEqual({ sel, count: blinkRes[sel] });
+      expect({ sel, count: shimRes[sel] }).toEqual({
+        sel,
+        count: blinkRes[sel],
+      });
     }
     expect(shimExtra).toEqual(blinkExtra);
   }, 60000);

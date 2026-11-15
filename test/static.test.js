@@ -23,12 +23,17 @@ describe('manifest.json', () => {
   });
 
   test('every referenced file exists on disk', () => {
-    for (const icon of Object.values(manifest.icons)) expect(fs.existsSync(path.join(ROOT, icon))).toBe(true);
+    for (const icon of Object.values(manifest.icons))
+      expect(fs.existsSync(path.join(ROOT, icon))).toBe(true);
     for (const cs of manifest.content_scripts) {
-      for (const f of [...(cs.js || []), ...(cs.css || [])]) expect(fs.existsSync(path.join(ROOT, f))).toBe(true);
+      for (const f of [...(cs.js || []), ...(cs.css || [])])
+        expect(fs.existsSync(path.join(ROOT, f))).toBe(true);
     }
-    expect(fs.existsSync(path.join(ROOT, manifest.background.service_worker))).toBe(true);
-    for (const r of manifest.declarative_net_request.rule_resources) expect(fs.existsSync(path.join(ROOT, r.path))).toBe(true);
+    expect(
+      fs.existsSync(path.join(ROOT, manifest.background.service_worker))
+    ).toBe(true);
+    for (const r of manifest.declarative_net_request.rule_resources)
+      expect(fs.existsSync(path.join(ROOT, r.path))).toBe(true);
   });
 
   test('version is consistent across manifest, package and release-please', () => {
@@ -41,7 +46,9 @@ describe('manifest.json', () => {
   test('release-please is configured to keep both version files in sync', () => {
     const config = JSON.parse(read('release-please-config.json'));
     const extraFiles = config.packages['.']['extra-files'];
-    const tracked = extraFiles.filter((e) => e.jsonpath === '$.version').map((e) => e.path);
+    const tracked = extraFiles
+      .filter((e) => e.jsonpath === '$.version')
+      .map((e) => e.path);
     expect(tracked).toContain('manifest.json');
     expect(tracked).toContain('package.json');
   });
@@ -50,7 +57,10 @@ describe('manifest.json', () => {
     expect(manifest.permissions).toEqual(['declarativeNetRequest']);
     expect(manifest.permissions).not.toContain('tabs');
     expect(manifest.permissions).not.toContain('webRequest');
-    expect(manifest.host_permissions).toEqual(['*://www.youtube.com/*', '*://youtube.com/*']);
+    expect(manifest.host_permissions).toEqual([
+      '*://www.youtube.com/*',
+      '*://youtube.com/*',
+    ]);
   });
 
   test('never runs on non-YouTube subdomains', () => {
@@ -64,7 +74,10 @@ describe('manifest.json', () => {
       expect(p).not.toContain('*.youtube.com');
     }
     for (const cs of manifest.content_scripts) {
-      expect(cs.matches).toEqual(['*://www.youtube.com/*', '*://youtube.com/*']);
+      expect(cs.matches).toEqual([
+        '*://www.youtube.com/*',
+        '*://youtube.com/*',
+      ]);
     }
   });
 });
@@ -83,7 +96,14 @@ describe('rules.json (declarative ad/telemetry blocking)', () => {
 
   test('blocks the documented ad/tracker and telemetry endpoints', () => {
     const filters = rules.map((r) => r.condition.urlFilter);
-    for (const needle of ['doubleclick.net', 'googlesyndication.com', 'googleadservices.com', 'google-analytics.com', 'log_event', 'feedback']) {
+    for (const needle of [
+      'doubleclick.net',
+      'googlesyndication.com',
+      'googleadservices.com',
+      'google-analytics.com',
+      'log_event',
+      'feedback',
+    ]) {
       expect(filters.some((f) => f.includes(needle))).toBe(true);
     }
   });
@@ -99,7 +119,12 @@ describe('rules.json (declarative ad/telemetry blocking)', () => {
   });
 
   test('tracker requests are scoped by initiator so only YouTube loses them', () => {
-    for (const needle of ['doubleclick.net', 'google-analytics.com', 'googlesyndication.com', 'googleadservices.com']) {
+    for (const needle of [
+      'doubleclick.net',
+      'google-analytics.com',
+      'googlesyndication.com',
+      'googleadservices.com',
+    ]) {
       const rule = rules.find((r) => r.condition.urlFilter.includes(needle));
       // Third-party hostnames cannot be matched by requestDomains, so these must
       // gate on who is asking, not on where the request goes.
@@ -110,8 +135,11 @@ describe('rules.json (declarative ad/telemetry blocking)', () => {
   test('no rule is scoped to a YouTube subdomain other than www', () => {
     // music.youtube.com and m.youtube.com are separate products with their own DOM.
     for (const r of rules) {
-      const scoped = r.condition.initiatorDomains || r.condition.requestDomains || [];
-      expect(scoped.some((d) => d.startsWith('music.') || d.startsWith('m.'))).toBe(false);
+      const scoped =
+        r.condition.initiatorDomains || r.condition.requestDomains || [];
+      expect(
+        scoped.some((d) => d.startsWith('music.') || d.startsWith('m.'))
+      ).toBe(false);
     }
   });
 });
@@ -126,20 +154,38 @@ describe('performance guardrails (AGENTS.md §3)', () => {
   });
 
   test('no setInterval / recursive polling in scripts', () => {
-    for (const f of jsFiles) expect(read(f).includes('setInterval')).toBe(false);
+    for (const f of jsFiles)
+      expect(read(f).includes('setInterval')).toBe(false);
+  });
+
+  test('never registers document-wide click or keyup handlers for sidebar polling', () => {
+    const src = read('comments.js')
+      .replace(/\/\/[^\n]*/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(
+      /document\.addEventListener\(\s*['"](?:click|keyup)['"]/.test(src)
+    ).toBe(false);
   });
 
   test('never observes document.body with subtree: true', () => {
     const src = read('comments.js');
     expect(/document\.body[^\n]*subtree:\s*true/.test(src)).toBe(false);
     // The comment-button observer must stay non-subtree.
-    expect(src.includes("observer.observe(target, { childList: true, subtree: false })")).toBe(true);
+    expect(
+      src.includes(
+        'observer.observe(target, { childList: true, subtree: false })'
+      )
+    ).toBe(true);
   });
 
   test('never observes #primary-inner with subtree: true', () => {
-    const src = read('comments.js').replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    const src = read('comments.js')
+      .replace(/\/\/[^\n]*/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
     expect(/#primary-inner[\s\S]{0,600}subtree:\s*true/.test(src)).toBe(false);
-    const fns = src.split(/(?=\bfunction\s+)/).filter((fn) => /subtree:\s*true/.test(fn));
+    const fns = src
+      .split(/(?=\bfunction\s+)/)
+      .filter((fn) => /subtree:\s*true/.test(fn));
     for (const fn of fns) {
       expect(fn.includes('#primary-inner')).toBe(false);
       expect(/\bprimaryInner\b/.test(fn)).toBe(false);
@@ -147,14 +193,68 @@ describe('performance guardrails (AGENTS.md §3)', () => {
     }
   });
 
+  test('startScopedObserver never falls back to document.body', () => {
+    const src = read('comments.js')
+      .replace(/\/\/[^\n]*/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    const fn = src
+      .split(/(?=\bfunction\s+)/)
+      .find((f) => f.startsWith('function startScopedObserver'));
+    expect(fn).toBeDefined();
+    expect(fn.includes('document.body')).toBe(false);
+    expect(fn.includes('ytd-page-manager')).toBe(true);
+    expect(fn.includes('ytd-app')).toBe(true);
+  });
+
   test('blur/shadows are only ever set to none, never enabled', () => {
-    const backdrop = [...css.matchAll(/backdrop-filter:\s*([^;]+);/g)].map((m) => m[1].trim());
-    const shadows = [...css.matchAll(/box-shadow:\s*([^;]+);/g)].map((m) => m[1].trim());
-    for (const v of [...backdrop, ...shadows]) expect(v).toBe('none !important');
+    const backdrop = [...css.matchAll(/backdrop-filter:\s*([^;]+);/g)].map(
+      (m) => m[1].trim()
+    );
+    const shadows = [...css.matchAll(/box-shadow:\s*([^;]+);/g)].map((m) =>
+      m[1].trim()
+    );
+    for (const v of [...backdrop, ...shadows])
+      expect(v).toBe('none !important');
   });
 
   test('ambient canvas and transitions are neutralized', () => {
     expect(css.includes('.ytp-ambient-canvas')).toBe(true);
+  });
+
+  test('hide.css keeps pure CSS #related suppression without malformed or duplicate declarations', () => {
+    const blocks = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+      selectors: m[1]
+        .split(',')
+        .map((s) => s.trim().replace(/\s+/g, ' '))
+        .filter(Boolean),
+      body: m[2],
+    }));
+
+    // #related must remain suppressed purely in CSS.
+    const relatedBlock = blocks.find((b) => b.selectors.includes('#related'));
+    expect(relatedBlock).toBeDefined();
+    expect(relatedBlock.body).toMatch(/display\s*:\s*none\s*!important/);
+
+    // Teaser carousel must be its own rule, never concatenated with description cleanup selectors.
+    const teaserBlock = blocks.find((b) =>
+      b.selectors.includes('#teaser-carousel')
+    );
+    expect(teaserBlock).toBeDefined();
+    expect(teaserBlock.selectors).toEqual([
+      '#teaser-carousel',
+      'yt-video-metadata-carousel-view-model',
+    ]);
+    expect(teaserBlock.body).toMatch(/display\s*:\s*none\s*!important/);
+
+    // No block should repeat both background-color and background shorthand.
+    for (const b of blocks) {
+      const props = [...b.body.matchAll(/([a-z-]+)\s*:/gi)].map((m) =>
+        m[1].toLowerCase()
+      );
+      expect(
+        props.includes('background-color') && props.includes('background')
+      ).toBe(false);
+    }
   });
 
   test('extension .ytlite-* rules declare no active CSS transitions', () => {
@@ -162,16 +262,23 @@ describe('performance guardrails (AGENTS.md §3)', () => {
     for (const block of css.split('}')) {
       const [head, body] = block.split('{');
       if (!head || !body || !head.includes('.ytlite-')) continue;
-      for (const m of body.matchAll(/\btransition(?:-duration|-property|-delay|-timing-function)?\s*:\s*([^;]+);/gi)) {
+      for (const m of body.matchAll(
+        /\btransition(?:-duration|-property|-delay|-timing-function)?\s*:\s*([^;]+);/gi
+      )) {
         ytliteTransitions.push({ selector: head.trim(), value: m[1].trim() });
       }
     }
-    expect(ytliteTransitions.filter((t) => !/^none(?:\s+!important)?$/i.test(t.value))).toEqual([]);
+    expect(
+      ytliteTransitions.filter(
+        (t) => !/^none(?:\s+!important)?$/i.test(t.value)
+      )
+    ).toEqual([]);
   });
 
   test('the default suite stays browser-free', () => {
     // `bun test` must not launch Chrome. Anything needing a browser lives in bench/.
-    const testFiles = fs.readdirSync(path.join(ROOT, 'test'))
+    const testFiles = fs
+      .readdirSync(path.join(ROOT, 'test'))
       .filter((f) => f.endsWith('.test.js') && f !== 'static.test.js');
     expect(testFiles.length).toBeGreaterThan(0);
     for (const f of testFiles) {
@@ -187,7 +294,9 @@ describe('playback quality is never touched while audio-only is off', () => {
     // Regression: applyQuality('480') pinned 480p on every load and SPA navigation,
     // overriding whatever quality the user had selected in YouTube's own menu.
     const src = read('player.js');
-    const applied = [...src.matchAll(/applyQuality\(([^)]*)\)/g)].map((m) => m[1].trim());
+    const applied = [...src.matchAll(/applyQuality\(([^)]*)\)/g)].map((m) =>
+      m[1].trim()
+    );
     expect(applied.length).toBeGreaterThan(0);
     for (const arg of applied) {
       expect(/^'144'$|^target$|^previous$/.test(arg)).toBe(true);
@@ -199,7 +308,11 @@ describe('playback quality is never touched while audio-only is off', () => {
     // getVideoData / setCollapsedState / onShowHideChat are page-world expandos and
     // are always undefined in the isolated world content scripts run in.
     const src = read('comments.js').replace(/\/\/[^\n]*/g, '');
-    for (const method of ['getVideoData', 'setCollapsedState', 'onShowHideChat']) {
+    for (const method of [
+      'getVideoData',
+      'setCollapsedState',
+      'onShowHideChat',
+    ]) {
       expect(src.includes(method)).toBe(false);
     }
   });
@@ -227,10 +340,14 @@ describe('continuation and legacy-cleanup scoping', () => {
     // Regression: a bare [role="button"] inside #comments can match the sort menu,
     // so the click opened a menu instead of loading comments.
     const src = read('comments.js');
-    const call = src.match(/const continuation = comments\.querySelector\(([^)]*)\)/);
+    const call = src.match(
+      /const continuation = comments\.querySelector\(([^)]*)\)/
+    );
     expect(call).not.toBeNull();
     expect(call[1]).toContain('ytd-continuation-item-renderer');
-    const loose = src.match(/comments\.querySelector\([^)]*\[role="button"\][^)]*\)/);
+    const loose = src.match(
+      /comments\.querySelector\([^)]*\[role="button"\][^)]*\)/
+    );
     expect(loose).toBeNull();
   });
 
@@ -239,7 +356,9 @@ describe('continuation and legacy-cleanup scoping', () => {
     // rules would be wiped on each install.
     const src = read('background.js');
     expect(src.includes('LEGACY_RULE_IDS')).toBe(true);
-    expect(/existing\.map\(\s*\(?r\)?\s*=>\s*r\.id\s*\)\s*;?\s*$/.test(src)).toBe(false);
+    expect(
+      /existing\.map\(\s*\(?r\)?\s*=>\s*r\.id\s*\)\s*;?\s*$/.test(src)
+    ).toBe(false);
     expect(src.includes('filter((id) => present.has(id))')).toBe(true);
   });
 });

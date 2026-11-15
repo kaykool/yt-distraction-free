@@ -16,7 +16,11 @@ describe('comments: hidden-by-default invariant', () => {
     expect(btn).not.toBeNull();
     expect(btn.textContent).toBe('Show comments');
     // No comment renderers have been added by the extension
-    expect(parts.commentsHost.children.filter((c) => c.tagName === 'YTD-COMMENT-THREAD-RENDERER').length).toBe(0);
+    expect(
+      parts.commentsHost.children.filter(
+        (c) => c.tagName === 'YTD-COMMENT-THREAD-RENDERER'
+      ).length
+    ).toBe(0);
   });
 });
 
@@ -24,7 +28,9 @@ describe('comments: on-demand reveal', () => {
   test('clicking the button un-hides comments and kicks continuation', () => {
     const { env, parts } = boot();
     let kicked = false;
-    parts.commentsHost.addEventListener('yt-load-next-continuation', () => { kicked = true; });
+    parts.commentsHost.addEventListener('yt-load-next-continuation', () => {
+      kicked = true;
+    });
 
     $$(env, '.ytlite-comments-btn').click();
 
@@ -35,10 +41,18 @@ describe('comments: on-demand reveal', () => {
 
   test('revealed comments render only after the click', () => {
     const { env, parts } = boot();
-    expect(parts.commentsHost.children.some((c) => c.tagName === 'YTD-COMMENT-THREAD-RENDERER')).toBe(false);
+    expect(
+      parts.commentsHost.children.some(
+        (c) => c.tagName === 'YTD-COMMENT-THREAD-RENDERER'
+      )
+    ).toBe(false);
     $$(env, '.ytlite-comments-btn').click();
     populateComments(env.document, parts, 5);
-    expect(parts.commentsHost.children.filter((c) => c.tagName === 'YTD-COMMENT-THREAD-RENDERER').length).toBe(5);
+    expect(
+      parts.commentsHost.children.filter(
+        (c) => c.tagName === 'YTD-COMMENT-THREAD-RENDERER'
+      ).length
+    ).toBe(5);
   });
 });
 
@@ -60,44 +74,105 @@ describe('comments: observer discipline', () => {
     expect(env.observers().filter((o) => o.active).length).toBe(0);
   });
 
-  test('comment observer starts when placement is impossible, then disconnects on success', () => {
-    const { env } = boot({
+  test('comment observer starts on app shell when watch containers are missing, then disconnects on success', () => {
+    const { env, parts } = boot({
+      fixture: { appShell: true },
       mutate: ({ doc }) => {
-        for (const sel of ['#below', '#primary-inner', '#primary', 'ytd-watch-flexy', 'ytd-watch-grid']) {
+        for (const sel of [
+          '#below',
+          '#primary-inner',
+          '#primary',
+          'ytd-watch-flexy',
+          'ytd-watch-grid',
+        ]) {
           doc.querySelector(sel)?.remove();
         }
       },
     });
     const active = env.observers().filter((o) => o.active);
     expect(active.length).toBe(1);
-    // It must actually be observing a real node (not a dangling, unbound observer).
+    // It must observe the scoped app-shell mount (ytd-page-manager), never document.body.
     expect(active[0].observations.length).toBe(1);
+    expect(active[0].observations[0].target).toBe(parts.pageManager);
     expect(active[0].observations[0].options.subtree).toBe(false);
 
     // Inject a placement target and poke the observer: button mounts + observer stops.
     const below = env.document.createElement('div');
     below.id = 'below';
     below.appendChild(env.document.createElement('ytd-watch-metadata'));
-    env.document.body.appendChild(below);
+    parts.pageManager.appendChild(below);
     active[0].trigger();
 
     expect($$(env, '.ytlite-button-container')).not.toBeNull();
     expect(env.observers().filter((o) => o.active).length).toBe(0);
   });
 
-  test('video-toggle observer never dangles when no player target exists', () => {
-    // Regression: startScopedVideoObserver used to assign the observer before
-    // bailing out on a missing target, leaking an unbound, never-timed-out observer.
-    const { env } = boot({
+  test('comment observer falls back to ytd-app when ytd-page-manager is absent and never to document.body', () => {
+    const { env, parts } = boot({
+      fixture: { appShell: true },
       mutate: ({ doc }) => {
-        for (const sel of ['.html5-video-player', '#movie_player', '#ytd-player', '#player', '#player-container-outer', '#primary-inner']) {
+        for (const sel of [
+          '#below',
+          '#primary-inner',
+          '#primary',
+          'ytd-watch-flexy',
+          'ytd-watch-grid',
+          'ytd-page-manager',
+          '#page-manager',
+        ]) {
           doc.querySelector(sel)?.remove();
         }
       },
     });
+    const active = env.observers().filter((o) => o.active);
+    expect(active.length).toBe(1);
+    expect(active[0].observations[0].target).toBe(parts.app);
+    expect(active[0].observations[0].options.subtree).toBe(false);
+
+    env.advance(4500);
+    expect(env.observers().filter((o) => o.active).length).toBe(0);
+  });
+
+  test('comment observer never falls back to document.body when no app shell exists', () => {
+    const { env } = boot({
+      mutate: ({ doc }) => {
+        for (const sel of [
+          '#below',
+          '#primary-inner',
+          '#primary',
+          'ytd-watch-flexy',
+          'ytd-watch-grid',
+        ]) {
+          doc.querySelector(sel)?.remove();
+        }
+      },
+    });
+    expect(env.observers().filter((o) => o.active).length).toBe(0);
     for (const o of env.observers()) {
-      if (o.active) expect(o.observations.length).toBe(1);
+      for (const obs of o.observations) {
+        expect(obs.target).not.toBe(env.document.body);
+      }
     }
+  });
+
+  test('video-toggle observer never dangles or falls back to #primary-inner when no player target exists', () => {
+    // Regression: startScopedVideoObserver used to assign the observer before
+    // bailing out on a missing target, or fall back to observing #primary-inner with subtree: true.
+    const { env, parts } = boot({
+      mutate: ({ doc }) => {
+        for (const sel of [
+          '.html5-video-player',
+          '#movie_player',
+          '#ytd-player',
+          '#player',
+          '#player-container-outer',
+        ]) {
+          doc.querySelector(sel)?.remove();
+        }
+      },
+    });
+    expect(parts.primaryInner.isConnected).toBe(true);
+    expect(env.observers().filter((o) => o.active).length).toBe(0);
     env.advance(4500);
     expect(env.observers().filter((o) => o.active).length).toBe(0);
     expect($$(env, '.ytlite-video-toggle-btn')).toBeNull();
@@ -116,8 +191,15 @@ describe('comments: observer discipline', () => {
 
   test('comment observer safety timeout force-disconnects a never-satisfied observer', () => {
     const { env } = boot({
+      fixture: { appShell: true },
       mutate: ({ doc }) => {
-        for (const sel of ['#below', '#primary-inner', '#primary', 'ytd-watch-flexy', 'ytd-watch-grid']) {
+        for (const sel of [
+          '#below',
+          '#primary-inner',
+          '#primary',
+          'ytd-watch-flexy',
+          'ytd-watch-grid',
+        ]) {
           doc.querySelector(sel)?.remove();
         }
       },
@@ -133,7 +215,9 @@ describe('comments: SPA navigation lifecycle', () => {
     const { env } = boot();
     cls(env).remove('ytlite-comments-hide');
     dispatch(env, env.document, 'yt-navigate-start', {
-      endpoint: { commandMetadata: { webCommandMetadata: { url: '/watch?v=xyz789' } } },
+      endpoint: {
+        commandMetadata: { webCommandMetadata: { url: '/watch?v=xyz789' } },
+      },
     });
     expect(cls(env).contains('ytlite-comments-hide')).toBe(true);
   });
@@ -141,7 +225,9 @@ describe('comments: SPA navigation lifecycle', () => {
   test('navigation away from watch removes all ytlite classes', () => {
     const { env } = boot();
     dispatch(env, env.document, 'yt-navigate-start', {
-      endpoint: { commandMetadata: { webCommandMetadata: { url: '/feed/subscriptions' } } },
+      endpoint: {
+        commandMetadata: { webCommandMetadata: { url: '/feed/subscriptions' } },
+      },
     });
     expect(cls(env).contains('ytlite-comments-hide')).toBe(false);
     expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
@@ -153,6 +239,37 @@ describe('comments: SPA navigation lifecycle', () => {
     env.navigate('https://www.youtube.com/feed/subscriptions');
     dispatch(env, env.document, 'yt-navigate-finish', {});
     expect(cls(env).contains('ytlite-comments-hide')).toBe(false);
+  });
+
+  test('yt-navigate-finish keeps an already-valid reveal button intact instead of rebuilding it', () => {
+    const { env } = boot();
+    const containerBefore = $$(env, '.ytlite-button-container');
+    const btnBefore = $$(env, '.ytlite-comments-btn');
+    expect(containerBefore).not.toBeNull();
+
+    dispatch(env, env.document, 'yt-navigate-finish', {
+      playerResponse: { videoDetails: { isLive: false, isLiveContent: false } },
+    });
+
+    expect($$(env, '.ytlite-button-container')).toBe(containerBefore);
+    expect($$(env, '.ytlite-comments-btn')).toBe(btnBefore);
+  });
+
+  test('yt-navigate-finish runs only a single sidebar pass synchronously', () => {
+    const { env } = boot();
+    env.advance(3500);
+
+    let panelScans = 0;
+    const orig = env.document.querySelectorAll.bind(env.document);
+    env.document.querySelectorAll = (sel) => {
+      if (sel === 'ytd-engagement-panel-section-list-renderer') panelScans++;
+      return orig(sel);
+    };
+
+    dispatch(env, env.document, 'yt-navigate-finish', {
+      playerResponse: { videoDetails: { isLive: false, isLiveContent: false } },
+    });
+    expect(panelScans).toBe(1);
   });
 });
 
@@ -233,7 +350,9 @@ describe('comments: live stream handling', () => {
     parts.chatFrame.setAttribute('hide-chat-frame', '');
     env.navigate('https://www.youtube.com/watch?v=normal2');
     dispatch(env, env.document, 'yt-navigate-start', {
-      endpoint: { commandMetadata: { webCommandMetadata: { url: '/watch?v=normal2' } } },
+      endpoint: {
+        commandMetadata: { webCommandMetadata: { url: '/watch?v=normal2' } },
+      },
     });
     dispatch(env, env.document, 'yt-navigate-finish', {
       playerResponse: { videoDetails: { isLive: false, isLiveContent: false } },
@@ -246,7 +365,9 @@ describe('comments: live stream handling', () => {
   });
 
   test('a page that turns live after placement swaps the button to Show chat', () => {
-    const { env, parts } = boot({ href: 'https://www.youtube.com/watch?v=abc123' });
+    const { env, parts } = boot({
+      href: 'https://www.youtube.com/watch?v=abc123',
+    });
     expect($$(env, '.ytlite-comments-btn').textContent).toBe('Show comments');
 
     const chat = env.document.createElement('ytd-live-chat-frame');
@@ -289,25 +410,133 @@ describe('comments: sidebar reveal for engagement panels', () => {
 
   test('hidden comment panel does not activate the sidebar', () => {
     const { env, parts } = boot();
-    parts.commentsPanel.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN');
+    parts.commentsPanel.setAttribute(
+      'visibility',
+      'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN'
+    );
     dispatch(env, env.document, 'yt-page-data-updated', {});
     env.advance(700);
     expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
   });
 });
 
-describe('comments: update coalescing (no work on every click)', () => {
-  test('a burst of clicks schedules only the coalesced timers', () => {
-    const { env } = boot();
-    // Count how often the expensive live-detection path runs by instrumenting querySelectorAll.
+describe('comments: event-driven sidebar (zero work on routine clicks/keys)', () => {
+  test('routine clicks and keyups trigger zero sidebar DOM-query passes', () => {
+    const { env, parts } = boot();
+    env.advance(3500); // settle cold-load hydration timers before measuring input work
+
     let calls = 0;
     const orig = env.document.querySelectorAll.bind(env.document);
-    env.document.querySelectorAll = (sel) => { calls++; return orig(sel); };
+    env.document.querySelectorAll = (sel) => {
+      calls++;
+      return orig(sel);
+    };
 
-    for (let i = 0; i < 5; i++) dispatch(env, env.document, 'click', undefined);
-    const afterClicks = calls;
-    expect(afterClicks).toBe(0); // scheduleSidebarUpdate does no synchronous DOM work
+    for (let i = 0; i < 5; i++) {
+      dispatch(env, env.document, 'click', undefined);
+      parts.moviePlayer.click();
+      parts.video.click();
+      parts.metadata.click();
+      for (const [target, key] of [
+        [env.document, 'Enter'],
+        [parts.moviePlayer, ' '],
+        [env.document, 'Escape'],
+      ]) {
+        const keyEv = new env.ctx.Event('keyup', {
+          bubbles: true,
+          cancelable: true,
+        });
+        keyEv.key = key;
+        target.dispatchEvent(keyEv);
+      }
+    }
+    expect(calls).toBe(0);
+    env.advance(4000);
+    expect(calls).toBe(0);
+  });
+
+  test('burst of targeted panel events schedules coalesced sidebar updates', () => {
+    const { env, parts } = boot();
+    env.advance(3500);
+
+    let calls = 0;
+    const orig = env.document.querySelectorAll.bind(env.document);
+    env.document.querySelectorAll = (sel) => {
+      calls++;
+      return orig(sel);
+    };
+
+    expandPanel(parts, 'ask');
+    for (let i = 0; i < 5; i++) {
+      dispatch(env, env.document, 'yt-engagement-panel-visibility-changed', {});
+    }
+    expect(calls).toBe(0); // coalesced asynchronously
     env.advance(700);
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(true);
     expect(calls).toBeGreaterThan(0);
+
+    parts.askPanel.setAttribute(
+      'visibility',
+      'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN'
+    );
+    dispatch(env, env.document, 'yt-visibility-refresh', {});
+    env.advance(700);
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
+  });
+
+  test('yt-action on an engagement panel toggles sidebar via single-shot bounded observer', () => {
+    const { env, parts } = boot();
+    env.advance(3500);
+
+    // Unrelated yt-action targets must trigger zero observers and zero sidebar scans.
+    let calls = 0;
+    const orig = env.document.querySelectorAll.bind(env.document);
+    env.document.querySelectorAll = (sel) => {
+      calls++;
+      return orig(sel);
+    };
+    dispatch(env, parts.moviePlayer, 'yt-action', {});
+    dispatch(env, env.document.documentElement, 'yt-action', {});
+    expect(env.observers().filter((o) => o.active).length).toBe(0);
+    env.advance(1000);
+    expect(calls).toBe(0);
+
+    // Panel yt-action attaches a single-shot attribute observer (subtree: false)
+    // because YouTube mutates the panel's visibility right after dispatching yt-action.
+    dispatch(env, parts.askPanel, 'yt-action', {});
+    let active = env.observers().filter((o) => o.active);
+    expect(active.length).toBe(1);
+    expect(active[0].observations[0].target).toBe(parts.askPanel);
+    expect(active[0].observations[0].options.subtree).toBe(false);
+
+    parts.askPanel.setAttribute(
+      'visibility',
+      'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED'
+    );
+    active[0].trigger();
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(true);
+    expect(env.observers().filter((o) => o.active).length).toBe(0);
+
+    // Closing the panel via yt-action + attribute mutation collapses the sidebar.
+    dispatch(env, parts.askPanel, 'yt-action', {});
+    active = env.observers().filter((o) => o.active);
+    expect(active.length).toBe(1);
+    parts.askPanel.setAttribute(
+      'visibility',
+      'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN'
+    );
+    active[0].trigger();
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
+    expect(env.observers().filter((o) => o.active).length).toBe(0);
+  });
+
+  test('yt-action panel observer safety timeout disconnects without leaking', () => {
+    const { env, parts } = boot();
+    env.advance(3500);
+
+    dispatch(env, parts.askPanel, 'yt-action', {});
+    expect(env.observers().filter((o) => o.active).length).toBe(1);
+    env.advance(700);
+    expect(env.observers().filter((o) => o.active).length).toBe(0);
   });
 });
