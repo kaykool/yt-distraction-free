@@ -1,0 +1,3 @@
+# Zero-Stall Audio-Only Video Suppression
+
+When `Audio-Only Mode` is active, YT Lite suppresses video by clamping `#movie_player` playback quality to `144p` (`tiny`) via `setPlaybackQualityRange('tiny', 'tiny')` and removing the `<video>` element from active paint/compositing so Chromium's media pipeline engages its hidden-video track decoder shutoff, rather than stripping `video/*` segments at the network (`declarativeNetRequest`) or MSE (`SourceBuffer.appendBuffer`) layer. Blocking video segments starves `#movie_player`'s buffer health monitor, causing playback stalls, broken timeline scrubbing, and forced player reloads when toggling video back on.

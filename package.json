@@ -11,6 +11,8 @@
     "bench:update": "bun run bench/bench.js --write",
     "verify:dom": "bun run bench/verify-dom.js",
     "verify:css": "bun run bench/verify-css.js",
-    "verify": "bun test test/ && bun run test:blink && bun run verify:dom && bun run verify:css"
+    "verify": "bun test test/ && bun run test:blink && bun run verify:dom && bun run verify:css",
+    "fmt:check": "bun fmt --check --ignore-unknown --allow-unsupported",
+    "prepare": "git config core.hooksPath .githooks"
   }
 }
