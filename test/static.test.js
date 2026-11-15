@@ -186,6 +186,7 @@ describe('performance guardrails (AGENTS.md §3)', () => {
     const fns = src
       .split(/(?=\bfunction\s+)/)
       .filter((fn) => /subtree:\s*true/.test(fn));
+    expect(fns.length).toBeGreaterThan(0);
     for (const fn of fns) {
       expect(fn.includes('#primary-inner')).toBe(false);
       expect(/\bprimaryInner\b/.test(fn)).toBe(false);
@@ -319,7 +320,9 @@ describe('playback quality is never touched while audio-only is off', () => {
 
   test('ytlite-set-quality dispatches omit unused detail payloads', () => {
     const src = read('comments.js');
-    const matches = [...src.matchAll(/new CustomEvent\(['"]ytlite-set-quality['"]([^)]*)\)/g)];
+    const matches = [
+      ...src.matchAll(/new CustomEvent\(['"]ytlite-set-quality['"]([^)]*)\)/g),
+    ];
     expect(matches.length).toBeGreaterThan(0);
     for (const m of matches) {
       expect(m[1].trim()).toBe('');
@@ -328,7 +331,11 @@ describe('playback quality is never touched while audio-only is off', () => {
 
   test('Audio-Only Mode pairs content-visibility: hidden with visibility: hidden on <video>', () => {
     const css = read('hide.css').replace(/\/\*[\s\S]*?\*\//g, '');
-    const block = css.split('}').find((b) => b.includes('html.ytlite-video-blocked') && b.includes('video'));
+    const block = css
+      .split('}')
+      .find(
+        (b) => b.includes('html.ytlite-video-blocked') && b.includes('video')
+      );
     expect(block).toBeDefined();
     expect(block).toContain('content-visibility: hidden !important');
     expect(block).toContain('visibility: hidden !important');

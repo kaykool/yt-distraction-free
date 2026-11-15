@@ -404,6 +404,107 @@ describe('live detection: strict Live Stream vs Stream Replay boundary', () => {
       'Show comments'
     );
   });
+
+  test('transient data-ytlite-replay during transition does not lock out a subsequent data-ytlite-live="true"', () => {
+    const { env, doc } = boot({
+      href: 'https://www.youtube.com/watch?v=liveTrans',
+    });
+
+    doc.documentElement.setAttribute('data-ytlite-replay', 'liveTrans');
+    dispatch(env, doc, 'ytlite-live-state');
+    expect(cls(env).contains('ytlite-live')).toBe(false);
+
+    doc.documentElement.removeAttribute('data-ytlite-replay');
+    publishPlayerLive(env, 'liveTrans');
+    dispatch(env, doc, 'ytlite-live-state');
+
+    expect(cls(env).contains('ytlite-live')).toBe(true);
+    expect(cls(env).contains('ytlite-comments-hide')).toBe(false);
+  });
+
+  test('unflagged conversationBar without playerResponse yields to data-ytlite-replay published by MAIN world', () => {
+    const { env, doc, main, parts, navigate, advance } = bootDualWorld({
+      href: 'https://www.youtube.com/watch?v=reg0',
+    });
+
+    navigate('https://www.youtube.com/watch?v=replaySpa1');
+    dispatch(
+      env,
+      doc,
+      'yt-navigate-start',
+      spaNavigateStart('/watch?v=replaySpa1')
+    );
+    parts.root.setAttribute('video-id', 'replaySpa1');
+    parts.moviePlayer.getVideoData = () => ({
+      isLive: false,
+      video_id: 'replaySpa1',
+    });
+
+    // Omitted playerResponse with unflagged liveChatRenderer arrives first.
+    dispatch(
+      env,
+      doc,
+      'yt-navigate-finish',
+      spaNavigateFinish({ hasLiveChat: true })
+    );
+    mountChat(main.document, parts, { collapsed: false });
+    parts.chatFrame.data = { liveChatRenderer: { isReplay: true } };
+    advance(700);
+
+    expect(cls(env).contains('ytlite-live')).toBe(false);
+    expect(cls(env).contains('ytlite-comments-hide')).toBe(true);
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
+    expect(doc.querySelector('.ytlite-comments-btn')?.textContent).toBe(
+      'Show comments'
+    );
+  });
+
+  test('already-published data-ytlite-replay wins immediately when unflagged conversationBar arrives on yt-navigate-finish', () => {
+    const { env, doc, parts } = boot({
+      href: 'https://www.youtube.com/watch?v=replaySpa2',
+    });
+    mountChat(doc, parts, { collapsed: false });
+    doc.documentElement.setAttribute('data-ytlite-replay', 'replaySpa2');
+
+    dispatch(
+      env,
+      doc,
+      'yt-navigate-finish',
+      spaNavigateFinish({ hasLiveChat: true })
+    );
+
+    expect(cls(env).contains('ytlite-live')).toBe(false);
+    expect(cls(env).contains('ytlite-comments-hide')).toBe(true);
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
+    expect(doc.querySelector('.ytlite-comments-btn')?.textContent).toBe(
+      'Show comments'
+    );
+  });
+
+  test('authoritative Stream Replay playerResponse is not overridden by later unflagged conversationBar yt-page-data-updated', () => {
+    const { env, doc, parts } = boot({
+      href: 'https://www.youtube.com/watch?v=replaySpa3',
+    });
+    mountChat(doc, parts, { collapsed: false });
+
+    dispatch(env, doc, 'yt-navigate-finish', {
+      playerResponse: { videoDetails: { isLive: false, isLiveContent: true } },
+    });
+    dispatch(
+      env,
+      doc,
+      'yt-page-data-updated',
+      spaNavigateFinish({ hasLiveChat: true })
+    );
+    env.advance(700);
+
+    expect(cls(env).contains('ytlite-live')).toBe(false);
+    expect(cls(env).contains('ytlite-comments-hide')).toBe(true);
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
+    expect(doc.querySelector('.ytlite-comments-btn')?.textContent).toBe(
+      'Show comments'
+    );
+  });
 });
 
 describe('live detection: transition-safe DOM cues and current YouTube watch containers', () => {

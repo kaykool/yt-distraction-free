@@ -167,6 +167,11 @@ function collectSelectors() {
     'ytd-engagement-panel-section-list-renderer:not([target-id*="ad"]):not([hidden])',
     '#chatframe[hidden]',
     'script:not([src])',
+    '*',
+    'div > *',
+    '*.masthead-host',
+    '*.ytlite-live',
+    '#below *',
     '#not-present',
     'ytd-nonexistent',
   ]) {

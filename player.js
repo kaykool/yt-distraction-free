@@ -43,7 +43,10 @@
   let navTimers = [];
   let hasSpaNavigated = false;
   let watchSyncStarted = false;
-  let eventReplayVideoId = null;
+  let eventReplay = null;
+
+  const isStreamReplayData = (vd) =>
+    Boolean(vd && vd.isLiveContent === true && vd.isLive !== true);
 
   function clearNavTimers() {
     navTimers.forEach(clearTimeout);
@@ -107,15 +110,21 @@
   }
 
   function detectReplay(videoId) {
-    if (eventReplayVideoId && (!videoId || eventReplayVideoId === videoId))
+    if (
+      eventReplay &&
+      (eventReplay.videoId
+        ? !videoId || eventReplay.videoId === videoId
+        : !videoId || eventReplay.path === location.pathname)
+    ) {
       return true;
+    }
 
     const watchEl = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
     const domVideoId =
       watchEl && typeof watchEl.getAttribute === 'function'
         ? watchEl.getAttribute('video-id')
         : null;
-    const domMatches = !videoId || !domVideoId || domVideoId === videoId;
+    const domMatches = Boolean(watchEl) && (!videoId || domVideoId === videoId);
 
     if (domMatches) {
       const chat = document.querySelector('ytd-live-chat-frame, #chat');
@@ -127,23 +136,20 @@
       ) {
         return true;
       }
-      const flexyVd = watchEl && watchEl.data?.playerResponse?.videoDetails;
-      if (
-        flexyVd &&
-        flexyVd.isLiveContent === true &&
-        flexyVd.isLive !== true &&
-        (!videoId || !flexyVd.videoId || flexyVd.videoId === videoId)
-      ) {
-        return true;
-      }
+    }
+
+    const flexyVd = watchEl && watchEl.data?.playerResponse?.videoDetails;
+    if (
+      isStreamReplayData(flexyVd) &&
+      (!videoId || (flexyVd.videoId ? flexyVd.videoId === videoId : domMatches))
+    ) {
+      return true;
     }
 
     if (!hasSpaNavigated) {
       const initVd = window.ytInitialPlayerResponse?.videoDetails;
       if (
-        initVd &&
-        initVd.isLiveContent === true &&
-        initVd.isLive !== true &&
+        isStreamReplayData(initVd) &&
         (!videoId || !initVd.videoId || initVd.videoId === videoId)
       ) {
         return true;
@@ -270,7 +276,7 @@
   window.addEventListener('yt-navigate-start', () => {
     hasSpaNavigated = true;
     watchSyncStarted = true;
-    eventReplayVideoId = null;
+    eventReplay = null;
     clearNavTimers();
     clearPublishedLiveState();
   });
@@ -290,13 +296,16 @@
       pr?.liveChatRenderer;
     const vd = pr?.videoDetails;
     if (
-      (vd && vd.isLiveContent === true && vd.isLive !== true) ||
+      isStreamReplayData(vd) ||
       chatRenderer?.isReplay === true ||
       chatRenderer?.liveChatRenderer?.isReplay === true
     ) {
-      eventReplayVideoId = vd?.videoId || videoIdFromUrl() || 'true';
-    } else if (vd && vd.isLive === true) {
-      eventReplayVideoId = null;
+      eventReplay = {
+        videoId: vd?.videoId || videoIdFromUrl() || null,
+        path: location.pathname,
+      };
+    } else if (vd) {
+      eventReplay = null;
     }
 
     if (!isWatchPage()) {
