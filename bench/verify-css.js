@@ -11,16 +11,12 @@
 // YouTube class names change; the properties below are the ones the extension
 // promises, so a failure means a promise is broken, not that the DOM moved.
 //
-// Usage: bun run verify:css [url]
-import fs from 'node:fs';
+// Usage: bun run verify:css [url ...]
+//        VERIFY_URLS=url1,url2 bun run verify:css
 import path from 'node:path';
-import { launchPage, waitForReady } from './browser.js';
+import { resolveVerifyUrls, verifyAcrossUrls } from './browser.js';
 
 const EXT_DIR = path.resolve(import.meta.dir, '..');
-const URL =
-  process.argv[2] ||
-  process.env.VERIFY_URL ||
-  'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 const SETTLE_MS = Number(process.env.BENCH_SETTLE_MS || 9000);
 const PLAYER_MAX_W = 854;
 const PLAYER_MAX_H = 480;
@@ -332,7 +328,7 @@ const CHECKS = [
       const waitAdvance = async (ms = 2500) => {
         const settled = await waitUntil(
           () => !video.paused && !video.seeking && video.readyState >= 2 && video.currentTime > 0.05,
-          3000,
+          5000,
         );
         if (!settled) return { ok: false, from: video.currentTime, to: video.currentTime };
         await new Promise((r) => setTimeout(r, 200));
@@ -380,6 +376,30 @@ const CHECKS = [
           Promise.resolve(p).catch(() => {}),
           new Promise((r) => setTimeout(r, ms)),
         ]);
+      const videoDiag = () => {
+        const adShowing =
+          mp.classList.contains('ad-showing') ||
+          Boolean(document.querySelector('.ad-showing'));
+        const adInterrupting =
+          mp.classList.contains('ad-interrupting') ||
+          Boolean(document.querySelector('.ad-interrupting'));
+        return (
+          'readyState=' +
+          video.readyState +
+          ' networkState=' +
+          video.networkState +
+          ' paused=' +
+          video.paused +
+          ' hidden=' +
+          isVideoHidden(video) +
+          ' currentSrc=' +
+          JSON.stringify(video.currentSrc || '') +
+          ' adShowing=' +
+          adShowing +
+          ' adInterrupting=' +
+          adInterrupting
+        );
+      };
 
       try {
         mp.mute?.();
@@ -410,15 +430,7 @@ const CHECKS = [
         if (!ready) {
           return {
             ok: false,
-            detail:
-              'video did not start visible playback: rs=' +
-              video.readyState +
-              ' paused=' +
-              video.paused +
-              ' hidden=' +
-              isVideoHidden(video) +
-              ' src=' +
-              Boolean(video.currentSrc),
+            detail: 'video did not start visible playback: ' + videoDiag(),
           };
         }
 
@@ -470,7 +482,8 @@ const CHECKS = [
             ' advOn=' + advOn.from.toFixed(2) + '->' + advOn.to.toFixed(2) +
             ' seek=' + seekTarget.toFixed(1) + '@' + seekLanded.toFixed(1) + '->' + advAfterSeek.to.toFixed(2) +
             ' visibleAfter=' + visibleAfter + ' restored=' + qualityRestored +
-            ' advOff=' + advOff.from.toFixed(2) + '->' + advOff.to.toFixed(2),
+            ' advOff=' + advOff.from.toFixed(2) + '->' + advOff.to.toFixed(2) +
+            (ok ? '' : ' ' + videoDiag()),
         };
       } finally {
         if (origRange) mp.setPlaybackQualityRange = origRange;
@@ -487,56 +500,62 @@ const CHECKS = [
   },
 ];
 
-async function main() {
-  console.log(`Behavioral CSS check against ${URL}\n`);
-  const profileDir = '/tmp/ytlite-verify-css';
-  fs.rmSync(profileDir, { recursive: true, force: true });
-  const page = await launchPage({
+export async function runVerifyCss(urls = resolveVerifyUrls(), deps = {}) {
+  const { checkTimeoutMs = 30000, ...runnerDeps } = deps;
+  const log = runnerDeps.log || console.log;
+
+  return verifyAcrossUrls(urls, {
     port: 9651,
     extensionDir: EXT_DIR,
-    profileDir,
-  });
-  let failures = 0;
-  try {
-    await page.goto(URL);
-    await waitForReady(
-      page.evaluate,
-      "document.querySelector('ytd-watch-flexy, ytd-watch-grid') && document.querySelector('#below')",
-      SETTLE_MS
-    );
-    await Bun.sleep(1500);
-
-    for (const check of CHECKS) {
-      let res;
-      try {
-        res = await Promise.race([
-          page.evaluate(check.run),
-          new Promise((_, reject) =>
-            setTimeout(
-              () => reject(new Error('check timed out after 30s')),
-              30000
-            )
-          ),
-        ]);
-      } catch (err) {
-        res = { ok: false, detail: 'evaluate failed: ' + err.message };
+    profileDir: '/tmp/ytlite-verify-css',
+    settleMs: SETTLE_MS,
+    ...runnerDeps,
+    beforeUrl: (url) => log(`Behavioral CSS check against ${url}\n`),
+    verifyPage: async (page) => {
+      let failures = 0;
+      for (const check of CHECKS) {
+        let res;
+        let timer;
+        try {
+          res = await Promise.race([
+            page.evaluate(check.run),
+            new Promise((_, reject) => {
+              timer = setTimeout(
+                () =>
+                  reject(
+                    new Error(`check timed out after ${checkTimeoutMs}ms`)
+                  ),
+                checkTimeoutMs
+              );
+            }),
+          ]);
+        } catch (err) {
+          res = { ok: false, detail: 'evaluate failed: ' + err.message };
+        } finally {
+          clearTimeout(timer);
+        }
+        const mark = res.ok ? 'ok  ' : 'FAIL';
+        if (!res.ok) failures++;
+        log(`  ${mark}  ${check.name.padEnd(42)} ${res.detail}`);
+        if (!res.ok) log(`        expected: ${check.why}`);
       }
-      const mark = res.ok ? 'ok  ' : 'FAIL';
-      if (!res.ok) failures++;
-      console.log(`  ${mark}  ${check.name.padEnd(42)} ${res.detail}`);
-      if (!res.ok) console.log(`        expected: ${check.why}`);
-    }
 
-    console.log(
-      `\n${failures === 0 ? 'OK: every CSS/layout promise holds.' : `FAIL: ${failures} broken promise(s).`}`
-    );
-    process.exitCode = failures === 0 ? 0 : 1;
-  } finally {
-    await page.close();
-  }
+      log(
+        `\n${failures === 0 ? 'OK: every CSS/layout promise holds.' : `FAIL: ${failures} broken promise(s).`}`
+      );
+      return failures === 0;
+    },
+  });
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+async function main() {
+  const summary = await runVerifyCss(resolveVerifyUrls());
+  process.exitCode = summary.ok ? 0 : 1;
+}
+
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
