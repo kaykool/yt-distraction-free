@@ -68,9 +68,101 @@ describe('comments: observer discipline', () => {
         doc.getElementById('below')?.remove();
       },
     });
-    // #below is gone, but #primary-inner can still host the button, so placement
-    // must have succeeded and left no observer running.
-    expect($$(env, '.ytlite-button-container')).not.toBeNull();
+    // #below is gone, so fallback mounts inside visible #primary-inner and never inside hidden #secondary/#panels.
+    const container = $$(env, '.ytlite-button-container');
+    expect(container).not.toBeNull();
+    expect(container.closest('#primary-inner')).not.toBeNull();
+    expect(container.closest('#secondary')).toBeNull();
+    expect(container.closest('#panels')).toBeNull();
+    expect(env.observers().filter((o) => o.active).length).toBe(0);
+  });
+
+  test('place excludes hidden #secondary #panels when #below and #primary are absent, then mounts on #below arrival', () => {
+    const { env, parts } = boot({
+      mutate: ({ doc }) => {
+        doc.getElementById('below')?.remove();
+        doc.getElementById('primary-inner')?.remove();
+        doc.getElementById('primary')?.remove();
+      },
+    });
+    expect($$(env, '.ytlite-button-container')).toBeNull();
+    expect(parts.commentsPanel.closest('#panels')).not.toBeNull();
+
+    const active = env.observers().filter((o) => o.active);
+    expect(active.length).toBe(1);
+    expect(active[0].observations[0].target).toBe(parts.root);
+    expect(active[0].observations[0].options.subtree).toBe(false);
+
+    const below = env.document.createElement('div');
+    below.id = 'below';
+    below.appendChild(env.document.createElement('ytd-watch-metadata'));
+    const primary = env.document.createElement('div');
+    primary.id = 'primary';
+    primary.appendChild(below);
+    parts.root.appendChild(primary);
+    active[0].trigger();
+
+    const container = $$(env, '.ytlite-button-container');
+    expect(container).not.toBeNull();
+    expect(container.closest('#below')).toBe(below);
+    expect(container.closest('#secondary')).toBeNull();
+    expect(container.closest('#panels')).toBeNull();
+    expect(env.observers().filter((o) => o.active).length).toBe(0);
+  });
+
+  test('fallback button in #primary-inner relocates below metadata once #below mounts', () => {
+    const { env, parts } = boot({
+      mutate: ({ doc }) => {
+        doc.getElementById('below')?.remove();
+      },
+    });
+    const initial = $$(env, '.ytlite-button-container');
+    expect(initial?.closest('#primary-inner')).not.toBeNull();
+
+    const below = env.document.createElement('div');
+    below.id = 'below';
+    const meta = env.document.createElement('ytd-watch-metadata');
+    below.appendChild(meta);
+    parts.primaryInner.appendChild(below);
+    env.advance(350);
+
+    const relocated = $$(env, '.ytlite-button-container');
+    expect(relocated).not.toBeNull();
+    expect(relocated.closest('#below')).toBe(below);
+  });
+
+  test('live stream with collapsed chat starts scoped observer without ytlite-comments-hide', () => {
+    const { env, parts } = boot({
+      href: 'https://www.youtube.com/live/closedDelayed',
+      fixture: { isLive: true, liveChatClosed: true },
+      mutate: ({ doc }) => {
+        doc.getElementById('below')?.remove();
+        doc.getElementById('primary-inner')?.remove();
+        doc.getElementById('primary')?.remove();
+      },
+    });
+    expect(cls(env).contains('ytlite-comments-hide')).toBe(false);
+    expect($$(env, '.ytlite-button-container')).toBeNull();
+
+    const active = env.observers().filter((o) => o.active);
+    expect(active.length).toBe(1);
+    expect(active[0].observations[0].target).toBe(parts.root);
+    expect(active[0].observations[0].options.subtree).toBe(false);
+
+    const below = env.document.createElement('div');
+    below.id = 'below';
+    below.appendChild(env.document.createElement('ytd-watch-metadata'));
+    const primary = env.document.createElement('div');
+    primary.id = 'primary';
+    primary.appendChild(below);
+    parts.root.appendChild(primary);
+    active[0].trigger();
+
+    const btn = $$(env, '.ytlite-comments-btn');
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toBe('Show chat');
+    expect(btn.closest('#below')).toBe(below);
+    expect(btn.closest('#secondary')).toBeNull();
     expect(env.observers().filter((o) => o.active).length).toBe(0);
   });
 
@@ -220,6 +312,19 @@ describe('comments: SPA navigation lifecycle', () => {
       },
     });
     expect(cls(env).contains('ytlite-comments-hide')).toBe(true);
+  });
+
+  test('yt-navigate-start to /live removes comments hiding instead of enabling it', () => {
+    const { env } = boot();
+    expect(cls(env).contains('ytlite-comments-hide')).toBe(true);
+    dispatch(env, env.document, 'yt-navigate-start', {
+      endpoint: {
+        commandMetadata: { webCommandMetadata: { url: '/live/stream99' } },
+      },
+    });
+    expect(cls(env).contains('ytlite-comments-hide')).toBe(false);
+    expect(cls(env).contains('ytlite-live')).toBe(true);
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(true);
   });
 
   test('navigation away from watch removes all ytlite classes', () => {

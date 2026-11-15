@@ -15,12 +15,24 @@ describe('start.js: pre-paint class application', () => {
   });
 
   test('restores persisted audio-only state before first paint', () => {
-    const cls = runStart('https://www.youtube.com/watch?v=abc', { 'ytlite-block-video': 'true' });
+    const cls = runStart('https://www.youtube.com/watch?v=abc', {
+      'ytlite-block-video': 'true',
+    });
     expect(cls.contains('ytlite-video-blocked')).toBe(true);
   });
 
   test('/live route marks live + sidebar and does not hide comments', () => {
     const cls = runStart('https://www.youtube.com/live/abc');
+    expect(cls.contains('ytlite-live')).toBe(true);
+    expect(cls.contains('ytlite-sidebar-active')).toBe(true);
+    expect(cls.contains('ytlite-comments-hide')).toBe(false);
+  });
+
+  test('/live route restores persisted audio-only state without hiding comments', () => {
+    const cls = runStart('https://www.youtube.com/live/abc', {
+      'ytlite-block-video': 'true',
+    });
+    expect(cls.contains('ytlite-video-blocked')).toBe(true);
     expect(cls.contains('ytlite-live')).toBe(true);
     expect(cls.contains('ytlite-sidebar-active')).toBe(true);
     expect(cls.contains('ytlite-comments-hide')).toBe(false);
@@ -33,8 +45,12 @@ describe('start.js: pre-paint class application', () => {
   });
 
   test('localStorage failures are contained', () => {
-    const env = createEnvironment({ href: 'https://www.youtube.com/watch?v=abc' });
-    env.localStorage.getItem = () => { throw new Error('denied'); };
+    const env = createEnvironment({
+      href: 'https://www.youtube.com/watch?v=abc',
+    });
+    env.localStorage.getItem = () => {
+      throw new Error('denied');
+    };
     expect(() => env.load('./start.js')).not.toThrow();
   });
 });

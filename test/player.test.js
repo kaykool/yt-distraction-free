@@ -213,17 +213,50 @@ describe('player.js: live-state publication (isolated world cannot call the play
     expect(attr(env, 'data-ytlite-video')).toBeNull();
   });
 
-  test('open-chat request reaches the custom element method in this world', () => {
+  test('open-chat request reaches setCollapsedState in this world and notifies ytlite-chat-opened', () => {
     const { env, parts } = bootPlayer();
     let collapsedState = 'collapsed';
+    let calls = 0;
+    let openedEvent = 0;
+    env.window.addEventListener('ytlite-chat-opened', () => {
+      openedEvent++;
+    });
     parts.chatFrame = env.document.createElement('ytd-live-chat-frame');
     parts.chatFrame.setCollapsedState = (v) => {
+      calls++;
       collapsedState = v ? 'collapsed' : 'expanded';
     };
     env.document.body.appendChild(parts.chatFrame);
 
     env.window.dispatchEvent(new env.ctx.CustomEvent('ytlite-open-chat'));
     expect(collapsedState).toBe('expanded');
+    expect(calls).toBe(1);
+    expect(openedEvent).toBe(1);
+  });
+
+  test('open-chat falls back to onShowHideChat only when chat is collapsed, never toggling open chat closed', () => {
+    const { env, parts } = bootPlayer();
+    let calls = 0;
+    let openedEvent = 0;
+    env.window.addEventListener('ytlite-chat-opened', () => {
+      openedEvent++;
+    });
+    parts.chatFrame = env.document.createElement('ytd-live-chat-frame');
+    parts.chatFrame.setAttribute('collapsed', '');
+    parts.chatFrame.onShowHideChat = () => {
+      calls++;
+      parts.chatFrame.removeAttribute('collapsed');
+    };
+    env.document.body.appendChild(parts.chatFrame);
+
+    env.window.dispatchEvent(new env.ctx.CustomEvent('ytlite-open-chat'));
+    expect(calls).toBe(1);
+    expect(openedEvent).toBe(1);
+
+    // Second dispatch when already open must not call toggle method onShowHideChat again.
+    env.window.dispatchEvent(new env.ctx.CustomEvent('ytlite-open-chat'));
+    expect(calls).toBe(1);
+    expect(openedEvent).toBe(1);
   });
 
   test('open-chat with no chat frame does not throw', () => {
