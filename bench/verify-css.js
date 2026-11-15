@@ -425,7 +425,12 @@ const CHECKS = [
               }
             }
           }
-          return video.readyState >= 2 && !video.paused && !isVideoHidden(video);
+          return (
+            video.readyState >= 2 &&
+            !video.paused &&
+            video.currentTime > 0.05 &&
+            !isVideoHidden(video)
+          );
         }, 8000);
         if (!ready) {
           return {
