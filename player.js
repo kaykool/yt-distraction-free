@@ -81,8 +81,12 @@
     if (videoId) root.setAttribute('data-ytlite-video', videoId);
   }
 
-  // Read shared localStorage instead of CustomEvent.detail: detail does not
-  // survive the ISOLATED -> MAIN world boundary and arrives null.
+  let navQualityTimer = null;
+
+  const isWatchPage = () => location.pathname.startsWith('/watch') || location.pathname.startsWith('/live');
+
+  // Single click-time synchronization path: comments.js writes localStorage and
+  // dispatches ytlite-set-quality across worlds (CustomEvent.detail does not cross).
   window.addEventListener('ytlite-set-quality', syncQuality);
 
   // Live-chat control needs the custom element's prototype methods, which are only
@@ -99,27 +103,23 @@
     } catch (_) {}
   });
 
-  // Click bridge: the AudioOnly toggle button is created by comments.js in the ISOLATED
-  // world. Catch its clicks here in the MAIN world so the quality change does
-  // not depend on cross-world CustomEvent delivery. Capture phase runs before
-  // the button handler; setTimeout(0) reads localStorage after it is written.
-  document.addEventListener('click', (e) => {
-    const btn = e.target && typeof e.target.closest === 'function'
-      ? e.target.closest('.ytlite-video-toggle-btn')
-      : null;
-    if (!btn) return;
-    setTimeout(syncQuality, 0);
-  }, true);
-
-  // A stale published flag must never outlive the video it describes.
+  // A stale published flag or pending quality sync must never outlive the navigation.
   window.addEventListener('yt-navigate-start', () => {
+    clearTimeout(navQualityTimer);
+    navQualityTimer = null;
     document.documentElement.removeAttribute('data-ytlite-live');
     document.documentElement.removeAttribute('data-ytlite-video');
   });
 
   window.addEventListener('yt-navigate-finish', () => {
-    // The player may not be ready at either tick; both are one-shot, never polling.
-    setTimeout(syncQuality, 600);
+    clearTimeout(navQualityTimer);
+    // The player may not be ready immediately; one-shot debounce, never polling.
+    navQualityTimer = isWatchPage()
+      ? setTimeout(() => {
+          navQualityTimer = null;
+          syncQuality();
+        }, 600)
+      : null;
     setTimeout(publishLiveState, 600);
     setTimeout(publishLiveState, 2000);
   });

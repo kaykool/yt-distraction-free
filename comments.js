@@ -510,7 +510,7 @@
         localStorage.setItem('ytlite-block-video', nextBlocked ? 'true' : 'false');
       } catch (_) {}
       updateVideoBtnState(btn);
-      window.dispatchEvent(new CustomEvent('ytlite-set-quality', { detail: { quality: nextBlocked ? '144' : '480' } }));
+      window.dispatchEvent(new CustomEvent('ytlite-set-quality'));
     });
 
     // Ensure we find the top-level container inside rightControls, not an inner child
@@ -558,7 +558,7 @@
     }, 4000);
   }
 
-  function initVideoToggle() {
+  function initVideoToggle(syncQuality = false) {
     if (!isWatchPage()) {
       disconnectVideoObserver();
       return;
@@ -566,11 +566,12 @@
     if (!placeVideoToggleButton()) {
       startScopedVideoObserver();
     }
-    const isBlocked = document.documentElement.classList.contains('ytlite-video-blocked');
-    window.dispatchEvent(new CustomEvent('ytlite-set-quality', { detail: { quality: isBlocked ? '144' : '480' } }));
+    if (syncQuality) {
+      window.dispatchEvent(new CustomEvent('ytlite-set-quality'));
+    }
   }
 
-  function init() {
+  function init(syncQuality = false) {
     updateSidebarState();
     if (!isWatchPage()) {
       clearSidebarTimers();
@@ -582,7 +583,7 @@
       return;
     }
 
-    initVideoToggle();
+    initVideoToggle(syncQuality);
 
     const isLive = isLiveVideo() || document.documentElement.classList.contains('ytlite-live');
     if (isLive && !isLiveChatClosed()) {
@@ -704,7 +705,7 @@
     }
   }
 
-  init();
+  init(true);
   document.addEventListener('yt-navigate-start', handleNavigateStart);
   document.addEventListener('yt-navigate-finish', handleNavigateFinish);
   document.addEventListener('yt-page-data-updated', handleDataUpdated);
