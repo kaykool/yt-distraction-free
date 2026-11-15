@@ -12,7 +12,7 @@
 //        bun run bench:update   -> also write bench/results.json
 import fs from 'node:fs';
 import path from 'node:path';
-import { launchPage, captureLayoutStats, measureForcedReflow } from './browser.js';
+import { launchPage, waitForReady, captureLayoutStats, measureForcedReflow } from './browser.js';
 
 const EXT_DIR = path.resolve(import.meta.dir, '..');
 const TMP = path.join(EXT_DIR, '.bench-tmp');
@@ -35,14 +35,11 @@ async function measureOnce({ port, withExtension, run }) {
   try {
     await page.goto(URL);
     // Wait for the watch page to fully hydrate.
-    await page.evaluate(`new Promise((resolve) => {
-      const ready = () => document.querySelector('ytd-watch-flexy, ytd-watch-grid') &&
-        document.querySelector('#secondary') && document.querySelector('#below');
-      if (ready()) return resolve(true);
-      const obs = new MutationObserver(() => { if (ready()) { obs.disconnect(); resolve(true); } });
-      obs.observe(document.documentElement, { childList: true, subtree: true });
-      setTimeout(() => { obs.disconnect(); resolve(false); }, ${SETTLE_MS});
-    })`);
+    await waitForReady(
+      page.evaluate,
+      "document.querySelector('ytd-watch-flexy, ytd-watch-grid') && document.querySelector('#secondary') && document.querySelector('#below')",
+      SETTLE_MS,
+    );
     await Bun.sleep(1500);
 
     const stats = await captureLayoutStats(page.send, page.evaluate);

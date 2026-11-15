@@ -6,36 +6,70 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..'
+);
 
-const MATCH_ATTR = /\[([\w-]+)(?:([*^$~|]?=)"([^"]*)")?\]/;
-const MATCH_NOT = /:not\(([^)]*)\)/;
+const MATCH_ATTR =
+  /\[([\w-]+)(?:([*^$~|]?=)(?:"([^"]*)"|'([^']*)'|([^\]\s]+)))?\]/;
+const DYNAMIC_PSEUDO = /:(?:hover|active|focus-visible|focus|visited)\b/;
 
 class ClassList {
-  constructor(node) { this.node = node; }
-  _set() { return new Set(String(this.node._class || '').split(/\s+/).filter(Boolean)); }
-  _write(set) { this.node._class = [...set].join(' '); }
-  add(...names) { const s = this._set(); names.forEach((n) => s.add(n)); this._write(s); }
-  remove(...names) { const s = this._set(); names.forEach((n) => s.delete(n)); this._write(s); }
-  contains(name) { return this._set().has(name); }
-  values() { return [...this._set()]; }
-  [Symbol.iterator]() { return this._set()[Symbol.iterator](); }
-  toString() { return this.node._class; }
+  constructor(node) {
+    this.node = node;
+  }
+  _set() {
+    return new Set(
+      String(this.node._class || '')
+        .split(/\s+/)
+        .filter(Boolean)
+    );
+  }
+  _write(set) {
+    this.node._class = [...set].join(' ');
+    this.node.attributes.set('class', this.node._class);
+  }
+  add(...names) {
+    const s = this._set();
+    names.forEach((n) => s.add(n));
+    this._write(s);
+  }
+  remove(...names) {
+    const s = this._set();
+    names.forEach((n) => s.delete(n));
+    this._write(s);
+  }
+  contains(name) {
+    return this._set().has(name);
+  }
+  values() {
+    return [...this._set()];
+  }
+  [Symbol.iterator]() {
+    return this._set()[Symbol.iterator]();
+  }
+  toString() {
+    return this.node._class;
+  }
   toggle(name, force) {
     const s = this._set();
     const on = force === undefined ? !s.has(name) : Boolean(force);
-    if (on) s.add(name); else s.delete(name);
+    if (on) s.add(name);
+    else s.delete(name);
     this._write(s);
     return on;
   }
 }
 
 class EventTargetBase {
-  constructor() { this._listeners = new Map(); }
+  constructor() {
+    this._listeners = new Map();
+  }
   addEventListener(type, fn, opts) {
     if (typeof fn !== 'function') return;
     if (!this._listeners.has(type)) this._listeners.set(type, []);
-    const options = typeof opts === 'boolean' ? { capture: opts } : (opts || {});
+    const options = typeof opts === 'boolean' ? { capture: opts } : opts || {};
     this._listeners.get(type).push({
       fn,
       capture: Boolean(options.capture),
@@ -46,7 +80,8 @@ class EventTargetBase {
   removeEventListener(type, fn, opts) {
     const arr = this._listeners.get(type);
     if (!arr) return;
-    const capture = typeof opts === 'boolean' ? opts : Boolean(opts && opts.capture);
+    const capture =
+      typeof opts === 'boolean' ? opts : Boolean(opts && opts.capture);
     const i = arr.findIndex((l) => l.fn === fn && l.capture === capture);
     if (i >= 0) arr.splice(i, 1);
   }
@@ -90,13 +125,22 @@ class EventTargetBase {
         chain[i]._emit(event, false);
         if (event._stopped) return !event.defaultPrevented;
       }
-      globalThis.__window?._emit(event, false);
+      const wins =
+        this.ownerDocument?._windows ||
+        this._windows ||
+        (globalThis.__window ? [globalThis.__window] : []);
+      for (const w of wins) {
+        w._emit(event, false);
+        if (event._stopped) return !event.defaultPrevented;
+      }
     }
     return !event.defaultPrevented;
   }
 }
 
 let nodeSeq = 0;
+const RAW_NODE = Symbol.for('ytlite.raw');
+const unwrapNode = (n) => (n && typeof n === 'object' && n[RAW_NODE]) || n;
 
 class Node extends EventTargetBase {
   constructor(tagName, ownerDocument) {
@@ -108,17 +152,37 @@ class Node extends EventTargetBase {
     this.attributes = new Map();
     this._class = '';
     this._text = '';
-    this.hidden = false;
     this._uid = ++nodeSeq;
   }
-  get id() { return this.attributes.get('id') || ''; }
-  set id(v) { this.attributes.set('id', String(v)); }
-  get className() { return this._class; }
-  set className(v) { this._class = String(v); }
-  get classList() { return new ClassList(this); }
+  get id() {
+    return this.attributes.get('id') || '';
+  }
+  set id(v) {
+    this.attributes.set('id', String(v));
+  }
+  get hidden() {
+    return this.hasAttribute('hidden');
+  }
+  set hidden(v) {
+    if (v) this.setAttribute('hidden', '');
+    else this.removeAttribute('hidden');
+  }
+  get className() {
+    return this._class;
+  }
+  set className(v) {
+    this._class = String(v);
+    this.attributes.set('class', this._class);
+  }
+  get classList() {
+    return new ClassList(this);
+  }
   get isConnected() {
     let n = this;
-    while (n) { if (n === this.ownerDocument) return true; n = n.parentElement; }
+    while (n) {
+      if (n === this.ownerDocument) return true;
+      n = n.parentElement;
+    }
     return false;
   }
   get nextSibling() {
@@ -127,59 +191,106 @@ class Node extends EventTargetBase {
     const i = sibs.indexOf(this);
     return i >= 0 && i + 1 < sibs.length ? sibs[i + 1] : null;
   }
+  get previousElementSibling() {
+    if (!this.parentElement) return null;
+    const sibs = this.parentElement.children;
+    const i = sibs.indexOf(this);
+    return i > 0 ? sibs[i - 1] : null;
+  }
   get textContent() {
     if (this.children.length === 0) return this._text;
     return this._text + this.children.map((c) => c.textContent).join('');
   }
-  set textContent(v) { this._text = String(v); this.children = []; }
-  get innerText() { return this.textContent; }
-  set innerText(v) { this.textContent = v; }
+  set textContent(v) {
+    this._text = String(v);
+    this.children = [];
+  }
+  get innerText() {
+    return this.textContent;
+  }
+  set innerText(v) {
+    this.textContent = v;
+  }
 
   setAttribute(name, value) {
     this.attributes.set(name, String(value));
     if (name === 'class') this._class = String(value);
     if (name === 'id') this.attributes.set('id', String(value));
   }
-  getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; }
-  hasAttribute(name) { return this.attributes.has(name); }
-  removeAttribute(name) { this.attributes.delete(name); }
-  matches(selector) { return matchesSelector(this, selector); }
+  getAttribute(name) {
+    return this.attributes.has(name) ? this.attributes.get(name) : null;
+  }
+  hasAttribute(name) {
+    return this.attributes.has(name);
+  }
+  removeAttribute(name) {
+    this.attributes.delete(name);
+    if (name === 'class') this._class = '';
+  }
+  matches(selector) {
+    return matchesSelector(this, selector);
+  }
   closest(selector) {
     let n = this;
-    while (n && n.tagName) { if (matchesSelector(n, selector)) return n; n = n.parentElement; }
+    while (n && n.tagName) {
+      if (matchesSelector(n, selector)) return n;
+      n = n.parentElement;
+    }
     return null;
   }
   appendChild(child) {
-    if (child.parentElement) child.parentElement._detach(child);
-    child.parentElement = this;
-    this.children.push(child);
+    const c = unwrapNode(child);
+    if (c.parentElement) c.parentElement._detach(c);
+    c.parentElement = this;
+    this.children.push(c);
     return child;
   }
   insertBefore(child, ref) {
-    if (!ref) return this.appendChild(child);
-    if (child.parentElement) child.parentElement._detach(child);
-    const i = this.children.indexOf(ref);
-    child.parentElement = this;
-    if (i < 0) this.children.push(child); else this.children.splice(i, 0, child);
+    const c = unwrapNode(child);
+    const r = unwrapNode(ref);
+    if (!r) return this.appendChild(child);
+    if (c.parentElement) c.parentElement._detach(c);
+    const i = this.children.indexOf(r);
+    c.parentElement = this;
+    if (i < 0) this.children.push(c);
+    else this.children.splice(i, 0, c);
     return child;
   }
-  prepend(child) { return this.insertBefore(child, this.children[0] || null); }
-  removeChild(child) { this._detach(child); return child; }
+  prepend(child) {
+    return this.insertBefore(child, this.children[0] || null);
+  }
+  removeChild(child) {
+    this._detach(unwrapNode(child));
+    return child;
+  }
   _detach(child) {
     const i = this.children.indexOf(child);
     if (i >= 0) this.children.splice(i, 1);
     child.parentElement = null;
   }
-  remove() { if (this.parentElement) this.parentElement._detach(this); }
-  click() { this.dispatchEvent(new Event('click', { bubbles: true, cancelable: true })); }
+  remove() {
+    if (this.parentElement) this.parentElement._detach(this);
+  }
+  click() {
+    this.dispatchEvent(new Event('click', { bubbles: true, cancelable: true }));
+  }
   scrollIntoView() {}
-  getBoundingClientRect() { return { top: 0, left: 0, width: 0, height: 0, bottom: 0, right: 0 }; }
+  getBoundingClientRect() {
+    return { top: 0, left: 0, width: 0, height: 0, bottom: 0, right: 0 };
+  }
   _descendants(out = []) {
-    for (const c of this.children) { out.push(c); c._descendants(out); }
+    for (const c of this.children) {
+      out.push(c);
+      c._descendants(out);
+    }
     return out;
   }
-  querySelectorAll(sel) { return queryAll(this, sel); }
-  querySelector(sel) { return queryAll(this, sel)[0] || null; }
+  querySelectorAll(sel) {
+    return queryAll(this, sel);
+  }
+  querySelector(sel) {
+    return queryAll(this, sel)[0] || null;
+  }
 }
 
 class Document extends EventTargetBase {
@@ -193,31 +304,95 @@ class Document extends EventTargetBase {
     this.documentElement.appendChild(this.body);
     this.readyState = 'complete';
   }
-  createElement(tag) { return new Node(tag, this); }
-  getElementById(id) { return this._all().find((n) => n.id === id) || null; }
-  _all() { return this.documentElement._descendants(); }
-  querySelectorAll(sel) { return queryAll(this.documentElement, sel); }
-  querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
-  get elements() { return this._all(); }
+  createElement(tag) {
+    return new Node(tag, this);
+  }
+  getElementById(id) {
+    return this._all().find((n) => n.id === id) || null;
+  }
+  _all() {
+    return [this.documentElement, ...this.documentElement._descendants()];
+  }
+  querySelectorAll(sel) {
+    return this._all().filter((n) => matchesSelector(n, sel));
+  }
+  querySelector(sel) {
+    return this.querySelectorAll(sel)[0] || null;
+  }
+  get elements() {
+    return this._all();
+  }
+}
+
+function extractNots(sel) {
+  const nots = [];
+  let out = '';
+  let i = 0;
+  while (i < sel.length) {
+    if (sel.startsWith(':not(', i)) {
+      let depth = 1;
+      let j = i + 5;
+      let quote = null;
+      while (j < sel.length && depth > 0) {
+        const ch = sel[j];
+        if (quote) {
+          if (ch === quote && sel[j - 1] !== '\\') quote = null;
+        } else if (ch === '"' || ch === "'") {
+          quote = ch;
+        } else if (ch === '(') {
+          depth++;
+        } else if (ch === ')') {
+          depth--;
+        }
+        j++;
+      }
+      if (depth === 0) {
+        nots.push(sel.slice(i + 5, j - 1));
+        i = j;
+        continue;
+      }
+    }
+    out += sel[i++];
+  }
+  return { rest: out, nots };
 }
 
 function parseCompound(sel) {
-  const spec = { tag: null, id: null, classes: [], attrs: [], nots: [] };
-  let s = sel.trim();
-  const notMatch = s.match(MATCH_NOT);
-  if (notMatch) {
-    spec.nots.push(notMatch[1]);
-    s = s.replace(MATCH_NOT, '');
+  const { rest, nots } = extractNots(sel.trim());
+  const spec = {
+    tag: null,
+    id: null,
+    classes: [],
+    attrs: [],
+    nots,
+    neverMatches: false,
+  };
+  let s = rest;
+  if (DYNAMIC_PSEUDO.test(s)) {
+    spec.neverMatches = true;
+    return spec;
   }
   let attrMatch;
   while ((attrMatch = s.match(MATCH_ATTR))) {
-    spec.attrs.push({ name: attrMatch[1], op: attrMatch[2] || null, value: attrMatch[3] });
+    const val = attrMatch[3] ?? attrMatch[4] ?? attrMatch[5];
+    spec.attrs.push({
+      name: attrMatch[1],
+      op: attrMatch[2] || null,
+      value: val,
+    });
     s = s.replace(MATCH_ATTR, '');
   }
+  if (s.startsWith('*')) s = s.slice(1);
   const tagMatch = s.match(/^([a-zA-Z][\w-]*)/);
-  if (tagMatch) { spec.tag = tagMatch[1].toUpperCase(); s = s.slice(tagMatch[1].length); }
+  if (tagMatch) {
+    spec.tag = tagMatch[1].toUpperCase();
+    s = s.slice(tagMatch[1].length);
+  }
   const idMatch = s.match(/#([\w-]+)/);
-  if (idMatch) { spec.id = idMatch[1]; s = s.replace(idMatch[0], ''); }
+  if (idMatch) {
+    spec.id = idMatch[1];
+    s = s.replace(idMatch[0], '');
+  }
   const classRe = /\.([\w-]+)/g;
   let m;
   while ((m = classRe.exec(s))) spec.classes.push(m[1]);
@@ -226,52 +401,156 @@ function parseCompound(sel) {
 
 function matchCompound(node, compound) {
   const spec = parseCompound(compound);
+  if (spec.neverMatches) return false;
   if (spec.tag && node.tagName !== spec.tag) return false;
   if (spec.id && node.id !== spec.id) return false;
   for (const c of spec.classes) if (!node.classList.contains(c)) return false;
   for (const a of spec.attrs) {
     if (!node.hasAttribute(a.name)) return false;
-    if (a.op === '=' && node.getAttribute(a.name) !== a.value) return false;
-    if (a.op === '*=' && !String(node.getAttribute(a.name)).includes(a.value)) return false;
-    if (a.op === '^=' && !String(node.getAttribute(a.name)).startsWith(a.value)) return false;
-    if (a.op === '$=' && !String(node.getAttribute(a.name)).endsWith(a.value)) return false;
+    const actual = String(node.getAttribute(a.name));
+    if (a.op === '=' && actual !== a.value) return false;
+    if (a.op === '*=' && !actual.includes(a.value)) return false;
+    if (a.op === '^=' && !actual.startsWith(a.value)) return false;
+    if (a.op === '$=' && !actual.endsWith(a.value)) return false;
   }
   for (const inner of spec.nots) {
-    const negated = inner.trim();
-    if (negated.startsWith('[')) {
-      const a = negated.match(MATCH_ATTR);
-      if (a && node.hasAttribute(a[1])) return false;
-    } else if (matchesSelector(node, negated)) {
-      return false;
-    }
+    if (matchesSelector(node, inner)) return false;
   }
   return true;
 }
 
 function splitTop(sel) {
-  const parts = []; let depth = 0; let cur = '';
-  for (const ch of sel) {
-    if (ch === '(' || ch === '[') depth++;
-    else if (ch === ')' || ch === ']') depth--;
-    if (ch === ',' && depth === 0) { parts.push(cur); cur = ''; } else cur += ch;
+  const parts = [];
+  let paren = 0;
+  let bracket = 0;
+  let quote = null;
+  let cur = '';
+  for (let i = 0; i < sel.length; i++) {
+    const ch = sel[i];
+    if (quote) {
+      if (ch === quote && sel[i - 1] !== '\\') quote = null;
+      cur += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      cur += ch;
+      continue;
+    }
+    if (ch === '(') paren++;
+    else if (ch === ')' && paren > 0) paren--;
+    else if (ch === '[') bracket++;
+    else if (ch === ']' && bracket > 0) bracket--;
+    if (ch === ',' && paren === 0 && bracket === 0) {
+      parts.push(cur);
+      cur = '';
+    } else cur += ch;
   }
   parts.push(cur);
   return parts.map((p) => p.trim()).filter(Boolean);
 }
 
+function tokenizeComplex(group) {
+  const tokens = [];
+  let paren = 0;
+  let bracket = 0;
+  let quote = null;
+  let cur = '';
+  let pendingSpace = false;
+  for (let i = 0; i < group.length; i++) {
+    const ch = group[i];
+    if (quote) {
+      if (ch === quote && group[i - 1] !== '\\') quote = null;
+      cur += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      if (
+        pendingSpace &&
+        cur === '' &&
+        tokens.length &&
+        !isComb(tokens[tokens.length - 1])
+      ) {
+        tokens.push(' ');
+      }
+      pendingSpace = false;
+      quote = ch;
+      cur += ch;
+      continue;
+    }
+    if (ch === '(') paren++;
+    else if (ch === ')' && paren > 0) paren--;
+    else if (ch === '[') bracket++;
+    else if (ch === ']' && bracket > 0) bracket--;
+
+    if (paren === 0 && bracket === 0) {
+      if (/\s/.test(ch)) {
+        if (cur) {
+          tokens.push(cur);
+          cur = '';
+        }
+        pendingSpace = true;
+        continue;
+      }
+      if (ch === '>' || ch === '+' || ch === '~') {
+        if (cur) {
+          tokens.push(cur);
+          cur = '';
+        }
+        if (tokens.length === 0 || isComb(tokens[tokens.length - 1]))
+          return null;
+        tokens.push(ch);
+        pendingSpace = false;
+        continue;
+      }
+    }
+    if (
+      pendingSpace &&
+      cur === '' &&
+      tokens.length &&
+      !isComb(tokens[tokens.length - 1])
+    ) {
+      tokens.push(' ');
+    }
+    pendingSpace = false;
+    cur += ch;
+  }
+  if (cur) tokens.push(cur);
+  if (tokens.length === 0 || isComb(tokens[tokens.length - 1])) return null;
+  return tokens;
+}
+
+const isComb = (t) => t === ' ' || t === '>' || t === '+' || t === '~';
+
+function matchAt(node, tokens, idx) {
+  if (!node || !node.tagName) return false;
+  if (!matchCompound(node, tokens[idx])) return false;
+  if (idx === 0) return true;
+  const comb = tokens[idx - 1];
+  const prev = idx - 2;
+  if (comb === '>') return matchAt(node.parentElement, tokens, prev);
+  if (comb === '+') return matchAt(node.previousElementSibling, tokens, prev);
+  if (comb === '~') {
+    let s = node.previousElementSibling;
+    while (s) {
+      if (matchAt(s, tokens, prev)) return true;
+      s = s.previousElementSibling;
+    }
+    return false;
+  }
+  let p = node.parentElement;
+  while (p && p.tagName) {
+    if (matchAt(p, tokens, prev)) return true;
+    p = p.parentElement;
+  }
+  return false;
+}
+
 function matchesSelector(node, selector) {
   for (const group of splitTop(selector)) {
-    const chain = group.split(/\s+/).filter(Boolean);
-    if (chain.length === 0) continue;
-    if (!matchCompound(node, chain[chain.length - 1])) continue;
-    let ok = true; let n = node.parentElement; let i = chain.length - 2;
-    while (i >= 0) {
-      let found = false;
-      while (n && n.tagName) { if (matchCompound(n, chain[i])) { found = true; n = n.parentElement; break; } n = n.parentElement; }
-      if (!found) { ok = false; break; }
-      i--;
-    }
-    if (ok) return true;
+    const tokens = tokenizeComplex(group);
+    if (!tokens) continue;
+    if (matchAt(node, tokens, tokens.length - 1)) return true;
   }
   return false;
 }
@@ -291,18 +570,32 @@ class Event {
     this._stopped = false;
     this._immediateStopped = false;
   }
-  preventDefault() { this.defaultPrevented = true; }
-  stopPropagation() { this._stopped = true; }
-  stopImmediatePropagation() { this._stopped = true; this._immediateStopped = true; }
+  preventDefault() {
+    this.defaultPrevented = true;
+  }
+  stopPropagation() {
+    this._stopped = true;
+  }
+  stopImmediatePropagation() {
+    this._stopped = true;
+    this._immediateStopped = true;
+  }
 }
 class CustomEvent extends Event {
-  constructor(type, init = {}) { super(type, init); this.detail = init.detail ?? null; }
+  constructor(type, init = {}) {
+    super(type, init);
+    this.detail = init.detail ?? null;
+  }
 }
 
-export function createEnvironment({ href = 'https://www.youtube.com/watch?v=abc', storage = {} } = {}) {
+export function createEnvironment({
+  href = 'https://www.youtube.com/watch?v=abc',
+  storage = {},
+} = {}) {
   const u = new URL(href);
   const document = new Document();
   const window = new EventTargetBase();
+  document._windows = [window];
   window.scrollBy = () => {};
   window.scrollTo = () => {};
   const localStorageMap = new Map(Object.entries(storage));
@@ -311,53 +604,128 @@ export function createEnvironment({ href = 'https://www.youtube.com/watch?v=abc'
     setItem: (k, v) => localStorageMap.set(k, String(v)),
     removeItem: (k) => localStorageMap.delete(k),
     clear: () => localStorageMap.clear(),
-    get length() { return localStorageMap.size; },
+    get length() {
+      return localStorageMap.size;
+    },
     key: (i) => [...localStorageMap.keys()][i] ?? null,
   };
   const location = {
-    href: u.href, pathname: u.pathname, search: u.search,
-    origin: u.origin, host: u.host, hostname: u.hostname, hash: u.hash,
+    href: u.href,
+    pathname: u.pathname,
+    search: u.search,
+    origin: u.origin,
+    host: u.host,
+    hostname: u.hostname,
+    hash: u.hash,
   };
 
-  let now = 0; let seq = 1; const timers = new Map();
-  const setTimeoutFn = (fn, ms = 0) => { const id = seq++; timers.set(id, { fn, at: now + ms }); return id; };
-  const clearTimeoutFn = (id) => { timers.delete(id); };
+  let now = 0;
+  let seq = 1;
+  const timers = new Map();
+  const setTimeoutFn = (fn, ms = 0) => {
+    const id = seq++;
+    timers.set(id, { fn, at: now + ms });
+    return id;
+  };
+  const clearTimeoutFn = (id) => {
+    timers.delete(id);
+  };
   const runTimers = () => {
     let guard = 0;
     for (;;) {
-      const due = [...timers.entries()].filter(([, t]) => t.at <= now).sort((a, b) => a[1].at - b[1].at);
+      const due = [...timers.entries()]
+        .filter(([, t]) => t.at <= now)
+        .sort((a, b) => a[1].at - b[1].at);
       if (due.length === 0 || guard++ > 10000) break;
-      for (const [id, t] of due) { timers.delete(id); t.fn(); }
+      for (const [id, t] of due) {
+        timers.delete(id);
+        t.fn();
+      }
     }
   };
 
   const observerRegistry = [];
   class MutationObserverShim {
-    constructor(cb) { this.cb = cb; this.observations = []; this.active = true; observerRegistry.push(this); }
-    observe(target, options) { this.observations.push({ target, options }); }
-    disconnect() { this.active = false; }
-    takeRecords() { return []; }
-    trigger() { if (this.active) this.cb([], this); }
+    constructor(cb) {
+      this.cb = cb;
+      this.observations = [];
+      this.active = true;
+      observerRegistry.push(this);
+    }
+    observe(target, options) {
+      this.observations.push({ target, options });
+    }
+    disconnect() {
+      this.active = false;
+    }
+    takeRecords() {
+      return [];
+    }
+    trigger() {
+      if (this.active) this.cb([], this);
+    }
   }
   globalThis.__window = window;
 
   const sandbox = {
-    document, window, location, localStorage, navigator: { userAgent: 'bun-test' },
-    console, URL, Event, CustomEvent, MutationObserver: MutationObserverShim,
-    setTimeout: setTimeoutFn, clearTimeout: clearTimeoutFn,
-    queueMicrotask, structuredClone, Promise, Object, Array, JSON, Math, Date, String, Number, Boolean, RegExp, Error, TypeError, Symbol, Map, Set, WeakMap, WeakSet, parseInt, parseFloat, isNaN, Infinity, NaN,
+    document,
+    window,
+    location,
+    localStorage,
+    navigator: { userAgent: 'bun-test' },
+    console,
+    URL,
+    Event,
+    CustomEvent,
+    MutationObserver: MutationObserverShim,
+    setTimeout: setTimeoutFn,
+    clearTimeout: clearTimeoutFn,
+    queueMicrotask,
+    structuredClone,
+    Promise,
+    Object,
+    Array,
+    JSON,
+    Math,
+    Date,
+    String,
+    Number,
+    Boolean,
+    RegExp,
+    Error,
+    TypeError,
+    Symbol,
+    Map,
+    Set,
+    WeakMap,
+    WeakSet,
+    parseInt,
+    parseFloat,
+    isNaN,
+    Infinity,
+    NaN,
   };
   sandbox.globalThis = sandbox;
   const ctx = vm.createContext(sandbox);
 
   return {
-    ctx, document, window, location, localStorage, localStorageMap,
+    ctx,
+    document,
+    window,
+    location,
+    localStorage,
+    localStorageMap,
     observers: () => observerRegistry,
-    advance(ms) { now += ms; runTimers(); },
+    advance(ms) {
+      now += ms;
+      runTimers();
+    },
     runTimers,
     navigate(newHref) {
       const nu = new URL(newHref);
-      location.href = nu.href; location.pathname = nu.pathname; location.search = nu.search;
+      location.href = nu.href;
+      location.pathname = nu.pathname;
+      location.search = nu.search;
     },
     load(relPath, { asFilename = true } = {}) {
       const code = fs.readFileSync(path.resolve(REPO_ROOT, relPath), 'utf8');

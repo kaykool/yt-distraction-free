@@ -2,6 +2,7 @@
 (() => {
   let buttonContainer = null;
   let observer = null;
+  let observerTarget = null;
   let observerSafetyTimer = null;
 
   function isWatchPage() {
@@ -9,8 +10,12 @@
     return path.startsWith('/watch') || path.startsWith('/live');
   }
 
-  const hasAttr = (el, attr) => Boolean(el && typeof el.hasAttribute === 'function' && el.hasAttribute(attr));
-  const getAttr = (el, attr) => (el && typeof el.getAttribute === 'function' ? el.getAttribute(attr) : null);
+  const hasAttr = (el, attr) =>
+    Boolean(
+      el && typeof el.hasAttribute === 'function' && el.hasAttribute(attr)
+    );
+  const getAttr = (el, attr) =>
+    el && typeof el.getAttribute === 'function' ? el.getAttribute(attr) : null;
 
   let cachedVideoId = null;
   let cachedIsLive = false;
@@ -18,11 +23,14 @@
 
   // Live status supplied by YouTube's own lifecycle payloads. Authoritative and
   // free, so it is preferred over any DOM inspection.
-  let eventLiveSignal = null; // { videoId, isLive }
+  let eventLiveSignal = null; // { videoId, isLive, definitive }
 
   function videoIdFromUrl() {
     const match = location.search && location.search.match(/[?&]v=([^&#]+)/);
-    return match ? match[1] : null;
+    if (match) return match[1];
+    const liveMatch =
+      location.pathname && location.pathname.match(/^\/live\/([^/?#]+)/);
+    return liveMatch ? liveMatch[1] : null;
   }
 
   function cacheLive(videoId, isLive, definitive = true) {
@@ -35,51 +43,107 @@
   }
 
   function isLiveVideo() {
-    if (location.pathname.startsWith('/live')) return true;
-
     const currentVideoId = videoIdFromUrl();
+    const root = document.documentElement;
+    const replayFor = getAttr(root, 'data-ytlite-replay');
+    const isPublishedReplay = Boolean(
+      replayFor &&
+      (!currentVideoId || replayFor === 'true' || replayFor === currentVideoId)
+    );
+    const matchingEvent =
+      eventLiveSignal && eventLiveSignal.videoId === currentVideoId
+        ? eventLiveSignal
+        : null;
 
-    // 1. Authoritative: YouTube told us via yt-navigate-finish / yt-page-data-updated.
-    //    Checked before the cache because the payload can arrive *after* an initial
-    //    probe already concluded "not live" on a not-yet-hydrated page.
-    if (eventLiveSignal && eventLiveSignal.videoId === currentVideoId) {
-      return cacheLive(currentVideoId, eventLiveSignal.isLive);
+    // 1. Authoritative: YouTube told us via playerResponse or explicit isReplay.
+    //    Checked before /live path checks and caches so Stream Replays on /live/<id>
+    //    and late payloads always win over tentative heuristics.
+    if (matchingEvent && matchingEvent.definitive) {
+      return cacheLive(currentVideoId, matchingEvent.isLive);
     }
 
-    // 2. A definitive answer for this video id is stable. Only *definitive* results
+    // 2. Stream Replay marker published by MAIN-world player.js.
+    //    Checked before unflagged conversationBar heuristics, /live path checks,
+    //    cache, and DOM stamp cues so archived replays never leak into Live Stream
+    //    layout. Stored non-definitive so an explicit data-ytlite-live="true"
+    //    published later for the same video is never permanently locked out.
+    if (isPublishedReplay) {
+      return cacheLive(currentVideoId, false, false);
+    }
+
+    // 3. Unflagged conversationBar heuristic (no playerResponse, no isReplay).
+    //    Yields positive only when Replay wasn't detected, and stays non-definitive
+    //    so late MAIN-world replay metadata can still override it.
+    if (matchingEvent) {
+      return cacheLive(currentVideoId, matchingEvent.isLive, false);
+    }
+
+    if (location.pathname.startsWith('/live')) return true;
+
+    // 4. A definitive answer for this video id is stable. Only *definitive* results
     //    are trusted: an early probe on a not-yet-hydrated page can miss a live
     //    stream, so those indeterminate negatives must not be cached.
-    if (currentVideoId && cachedVideoId === currentVideoId && cachedDefinitive) {
+    if (
+      currentVideoId &&
+      cachedVideoId === currentVideoId &&
+      cachedDefinitive
+    ) {
       return cachedIsLive;
     }
 
-    // 3. Cheap, stable DOM attributes — but only when they describe the video in
-    //    the URL. ytd-watch-flexy is reused across SPA navigations and keeps the
-    //    previous video's [live]/[should-stamp-chat] attributes and its video-id
-    //    for over a second after the URL has already changed. Trusting those would
-    //    misclassify the new video, so a mismatch skips the DOM cues entirely.
+    // 4. Cheap, stable DOM attributes — but only when they describe the video in
+    //    the URL. ytd-watch-flexy is reused across SPA navigations and can drop or
+    //    retain the previous video's video-id and [live]/[should-stamp-chat] attributes
+    //    across a transition, so require an exact video-id match whenever present.
     const watchEl = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
     const domVideoId = getAttr(watchEl, 'video-id');
-    const domIsCurrent = !currentVideoId || !domVideoId || domVideoId === currentVideoId;
-    if (domIsCurrent && watchEl && (
-      hasAttr(watchEl, 'live') ||
-      hasAttr(watchEl, 'is-live') ||
-      hasAttr(watchEl, 'live-chat-present-and-expanded') ||
-      hasAttr(watchEl, 'should-stamp-chat')
-    )) {
+    const domIsCurrent =
+      Boolean(watchEl) && (!currentVideoId || domVideoId === currentVideoId);
+    if (
+      domIsCurrent &&
+      (hasAttr(watchEl, 'live') || hasAttr(watchEl, 'is-live'))
+    ) {
       return cacheLive(currentVideoId, true);
+    }
+
+    // Chat-stamp attributes appear on both Live Streams and Stream Replays, so keep
+    // them non-definitive until authoritative Replay/Live metadata resolves.
+    if (
+      domIsCurrent &&
+      (hasAttr(watchEl, 'live-chat-present-and-expanded') ||
+        hasAttr(watchEl, 'should-stamp-chat'))
+    ) {
+      return cacheLive(currentVideoId, true, false);
     }
 
     const badge = document.querySelector('.ytp-live-badge');
-    if (domIsCurrent && badge && (hasAttr(badge, 'disabled') || (badge.classList && badge.classList.contains('ytp-live-badge-is-livehead')))) {
+    if (
+      domIsCurrent &&
+      badge &&
+      !hasAttr(badge, 'hidden') &&
+      !badge.hidden &&
+      (hasAttr(badge, 'disabled') ||
+        hasAttr(badge, 'data-tooltip-title') ||
+        hasAttr(badge, 'aria-label') ||
+        (badge.classList &&
+          badge.classList.contains('ytp-live-badge-is-livehead')))
+    ) {
       return cacheLive(currentVideoId, true);
     }
 
-    // 4. Player API, via the flag player.js (MAIN world) publishes on <html>.
+    if (
+      domIsCurrent &&
+      document.querySelector(
+        '.ytp-time-display.ytp-live, .html5-video-player.ytp-live'
+      )
+    ) {
+      return cacheLive(currentVideoId, true);
+    }
+
+    // 5. Player API, via the flag player.js (MAIN world) publishes on <html>.
     //    The player object's methods are page-JS expandos and do not exist in this
     //    world, so the player cannot be asked directly from here. Only a positive
     //    answer is ever published there; absence means "no authoritative answer".
-    const root = document.documentElement;
     if (hasAttr(root, 'data-ytlite-live')) {
       const publishedFor = getAttr(root, 'data-ytlite-video');
       // A flag published for a different video is stale until player.js refreshes it.
@@ -93,39 +157,52 @@
     return cacheLive(currentVideoId, false, false);
   }
 
-  function isLiveChatClosed(chatFrame = document.querySelector('ytd-live-chat-frame, #chat')) {
+  function isLiveChatClosed(
+    chatFrame = document.querySelector('ytd-live-chat-frame, #chat')
+  ) {
     if (!chatFrame) return false;
-    return hasAttr(chatFrame, 'collapsed') ||
+    return (
+      hasAttr(chatFrame, 'collapsed') ||
       hasAttr(chatFrame, 'hidden') ||
-      hasAttr(chatFrame, 'hide-chat-frame');
+      hasAttr(chatFrame, 'hide-chat-frame')
+    );
   }
 
   // YouTube renders an availability message inside the collapsed chat frame when
   // chat is disabled for the stream. The frame is otherwise indistinguishable
   // from a user-hidden chat, so this is the only cheap way to avoid offering a
   // Show chat button that opens an empty panel.
-  function isChatUnavailable(chatFrame = document.querySelector('ytd-live-chat-frame, #chat')) {
-    return Boolean(chatFrame && chatFrame.querySelector('ytd-message-renderer'));
+  function isChatUnavailable(
+    chatFrame = document.querySelector('ytd-live-chat-frame, #chat')
+  ) {
+    return Boolean(
+      chatFrame && chatFrame.querySelector('ytd-message-renderer')
+    );
   }
 
-  function isSidebarNeeded() {
-    if (!isWatchPage()) return false;
+  function isSidebarNeeded(watch = isWatchPage(), isLive = isLiveVideo()) {
+    if (!watch) return false;
 
     // The sidebar only earns its space when it has content to show. A live video
     // with no chat would otherwise reserve ~400px of column that hide.css empties
     // (the related-video list is hidden), leaving a blank gutter next to the player.
-    const chatFrame = document.querySelector('ytd-live-chat-frame, #chat');
-    if (chatFrame) {
-      if (!isLiveChatClosed(chatFrame) && !isChatUnavailable(chatFrame)) return true;
-    } else {
-      // Live chat can also be mounted as a bare iframe before its frame element
-      // exists. Only then is the iframe's own hidden state meaningful: YouTube
-      // hides chat by collapsing the frame element and leaves #chatframe unhidden,
-      // so checking the iframe alongside a collapsed frame would keep the sidebar
-      // open (and suppress the Show chat button) after the user hides chat, or
-      // after navigating away from a live video whose frame is still mounted.
-      const chatIframe = document.getElementById('chatframe');
-      if (chatIframe && !chatIframe.hidden) return true;
+    // Chat Replay mounts uncollapsed by default on YouTube replays, so only active
+    // Live Streams auto-open the Sidebar for chat.
+    if (isLive) {
+      const chatFrame = document.querySelector('ytd-live-chat-frame, #chat');
+      if (chatFrame) {
+        if (!isLiveChatClosed(chatFrame) && !isChatUnavailable(chatFrame))
+          return true;
+      } else {
+        // Live chat can also be mounted as a bare iframe before its frame element
+        // exists. Only then is the iframe's own hidden state meaningful: YouTube
+        // hides chat by collapsing the frame element and leaves #chatframe unhidden,
+        // so checking the iframe alongside a collapsed frame would keep the sidebar
+        // open (and suppress the Show chat button) after the user hides chat, or
+        // after navigating away from a live video whose frame is still mounted.
+        const chatIframe = document.getElementById('chatframe');
+        if (chatIframe && !chatIframe.hidden) return true;
+      }
     }
 
     // panels-expanded is only set once a panel is genuinely open.
@@ -133,22 +210,32 @@
     if (watchEl && hasAttr(watchEl, 'panels-expanded')) return true;
 
     // Engagement panels (Ask AI, conversational AI, transcripts, chapters, etc.)
-    const panels = document.querySelectorAll('ytd-engagement-panel-section-list-renderer');
-    const commentsHidden = document.documentElement.classList.contains('ytlite-comments-hide');
+    const panels = document.querySelectorAll(
+      'ytd-engagement-panel-section-list-renderer'
+    );
+    const commentsHidden = document.documentElement.classList.contains(
+      'ytlite-comments-hide'
+    );
     for (let i = 0; i < panels.length; i++) {
       const p = panels[i];
-      const targetId = (getAttr(p, 'target-id') || getAttr(p, 'data-target-id') || '').toLowerCase();
+      const targetId = (
+        getAttr(p, 'target-id') ||
+        getAttr(p, 'data-target-id') ||
+        ''
+      ).toLowerCase();
       if (targetId.includes('ad') || targetId.includes('sponsor')) continue;
       if (commentsHidden && targetId.includes('comment')) continue;
 
       const vis = getAttr(p, 'visibility');
-      const isExpanded = vis === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED' ||
-                         vis === 'ENGAGEMENT_PANEL_VISIBILITY_VISIBLE' ||
-                         hasAttr(p, 'opened') ||
-                         hasAttr(p, 'expanded') ||
-                         hasAttr(p, 'is-expanded') ||
-                         (Boolean(vis) && !vis.includes('HIDDEN'));
-      const isHidden = hasAttr(p, 'hidden') || vis === 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN';
+      const isExpanded =
+        vis === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED' ||
+        vis === 'ENGAGEMENT_PANEL_VISIBILITY_VISIBLE' ||
+        hasAttr(p, 'opened') ||
+        hasAttr(p, 'expanded') ||
+        hasAttr(p, 'is-expanded') ||
+        (Boolean(vis) && !vis.includes('HIDDEN'));
+      const isHidden =
+        hasAttr(p, 'hidden') || vis === 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN';
 
       if (isExpanded && !isHidden) {
         return true;
@@ -158,46 +245,181 @@
     return false;
   }
 
-  function updateSidebarState() {
-    const isLive = isLiveVideo();
+  function updateSidebarState(state) {
+    const watch = state?.watch !== undefined ? state.watch : isWatchPage();
+    if (!watch) {
+      document.documentElement.classList.remove(
+        'ytlite-live',
+        'ytlite-sidebar-active'
+      );
+      removeExistingButton();
+      return { watch: false, isLive: false, needSidebar: false, placed: false };
+    }
+
+    const wasLive = document.documentElement.classList.contains('ytlite-live');
+    const isLive = state?.isLive !== undefined ? state.isLive : isLiveVideo();
     if (isLive) {
       document.documentElement.classList.add('ytlite-live');
       document.documentElement.classList.remove('ytlite-comments-hide');
       disconnectObserver();
     } else {
       document.documentElement.classList.remove('ytlite-live');
+      if (wasLive) {
+        document.documentElement.classList.add('ytlite-comments-hide');
+      }
     }
 
-    const needSidebar = isSidebarNeeded();
+    const needSidebar = isSidebarNeeded(watch, isLive);
+    let placed = false;
     if (needSidebar) {
       document.documentElement.classList.add('ytlite-sidebar-active');
       if (isLive) {
         removeExistingButton();
-      } else if (isWatchPage()) {
-        place();
+      } else {
+        placed = place({ watch, isLive });
       }
     } else {
       document.documentElement.classList.remove('ytlite-sidebar-active');
-      if (isWatchPage()) {
-        place();
-      }
+      placed = place({ watch, isLive });
     }
+    return { watch, isLive, needSidebar, placed };
   }
 
+  const PANEL_OR_CHAT_SELECTOR =
+    'ytd-engagement-panel-section-list-renderer, #panels, ytd-live-chat-frame, #chat';
+  let hydrationTimers = [];
   let sidebarUpdateTimers = [];
+  let panelObserver = null;
+  let panelObserverSafetyTimer = null;
+  let chatObserver = null;
+  let chatObserverTarget = null;
+  let chatObserverSafetyTimer = null;
+
+  function clearHydrationTimers() {
+    hydrationTimers.forEach(clearTimeout);
+    hydrationTimers = [];
+  }
+
   function clearSidebarTimers() {
     sidebarUpdateTimers.forEach(clearTimeout);
     sidebarUpdateTimers = [];
   }
 
+  function disconnectPanelObserver() {
+    if (panelObserver) {
+      panelObserver.disconnect();
+      panelObserver = null;
+    }
+    if (panelObserverSafetyTimer) {
+      clearTimeout(panelObserverSafetyTimer);
+      panelObserverSafetyTimer = null;
+    }
+  }
+
+  function disconnectChatObserver() {
+    if (chatObserver) {
+      chatObserver.disconnect();
+      chatObserver = null;
+    }
+    chatObserverTarget = null;
+    if (chatObserverSafetyTimer) {
+      clearTimeout(chatObserverSafetyTimer);
+      chatObserverSafetyTimer = null;
+    }
+  }
+
+  function startScopedChatObserver() {
+    if (!isWatchPage()) {
+      disconnectChatObserver();
+      return;
+    }
+    if (document.querySelector('ytd-live-chat-frame, #chat')) {
+      disconnectChatObserver();
+      return;
+    }
+    const target =
+      document.getElementById('secondary-inner') ||
+      document.getElementById('secondary');
+    if (!target) {
+      disconnectChatObserver();
+      return;
+    }
+    if (chatObserver && chatObserverTarget === target && target.isConnected) {
+      return;
+    }
+    disconnectChatObserver();
+    chatObserverTarget = target;
+    chatObserver = new MutationObserver(() => {
+      if (!isWatchPage()) {
+        disconnectChatObserver();
+        return;
+      }
+      if (document.querySelector('ytd-live-chat-frame, #chat')) {
+        disconnectChatObserver();
+        syncWatchUi();
+      }
+    });
+    chatObserver.observe(target, { childList: true, subtree: false });
+
+    chatObserverSafetyTimer = setTimeout(() => {
+      disconnectChatObserver();
+    }, 4000);
+  }
+
+  function observePanelOrChatTransition(target) {
+    disconnectPanelObserver();
+    if (!isWatchPage() || !target || !target.isConnected) return;
+
+    const options =
+      target.id === 'panels'
+        ? { childList: true, attributes: true, subtree: false }
+        : {
+            attributes: true,
+            attributeFilter: [
+              'visibility',
+              'hidden',
+              'opened',
+              'expanded',
+              'is-expanded',
+              'collapsed',
+              'hide-chat-frame',
+            ],
+            subtree: false,
+          };
+
+    panelObserver = new MutationObserver(() => {
+      disconnectPanelObserver();
+      clearSidebarTimers();
+      syncWatchUi();
+    });
+    panelObserver.observe(target, options);
+
+    panelObserverSafetyTimer = setTimeout(() => {
+      disconnectPanelObserver();
+    }, 600);
+  }
+
   function scheduleSidebarUpdate() {
     if (!isWatchPage()) return;
-    // Coalesce input bursts: drop the synchronous pass (6-8 DOM queries per click/keypress);
-    // the 150/600ms timers below cover the settled state.
     clearSidebarTimers();
-    sidebarUpdateTimers.push(setTimeout(updateSidebarState, 150));
-    sidebarUpdateTimers.push(setTimeout(updateSidebarState, 600));
+    sidebarUpdateTimers.push(setTimeout(() => syncWatchUi(), 150));
+    sidebarUpdateTimers.push(setTimeout(() => syncWatchUi(), 600));
   }
+
+  function syncPanelEvent(e, requireTarget) {
+    if (!isWatchPage()) return;
+    const target = e?.target;
+    const panelOrChat =
+      target && typeof target.closest === 'function'
+        ? target.closest(PANEL_OR_CHAT_SELECTOR)
+        : null;
+    if (requireTarget && !panelOrChat) return;
+    if (panelOrChat) observePanelOrChatTransition(panelOrChat);
+    scheduleSidebarUpdate();
+  }
+
+  const handlePanelLifecycleEvent = (e) => syncPanelEvent(e, false);
+  const handlePanelAction = (e) => syncPanelEvent(e, true);
 
   function getUrlFromEvent(e) {
     if (!e || !e.detail) return null;
@@ -228,11 +450,21 @@
     }
   }
 
+  function isLiveUrl(url) {
+    if (!url) return false;
+    try {
+      return new URL(url, location.origin).pathname.startsWith('/live');
+    } catch (_) {
+      return false;
+    }
+  }
+
   function disconnectObserver() {
     if (observer) {
       observer.disconnect();
       observer = null;
     }
+    observerTarget = null;
     if (observerSafetyTimer) {
       clearTimeout(observerSafetyTimer);
       observerSafetyTimer = null;
@@ -263,15 +495,21 @@
     // ytd-continuation-item-renderer on purpose: a bare [role="button"] inside
     // #comments can match the sort menu or a reply toggle, and clicking that would
     // open a menu instead of loading comments.
-    const continuation = comments.querySelector('ytd-continuation-item-renderer');
-    const loadBtn = continuation && continuation.querySelector('button, tp-yt-paper-button, [role="button"]');
+    const continuation = comments.querySelector(
+      'ytd-continuation-item-renderer'
+    );
+    const loadBtn =
+      continuation &&
+      continuation.querySelector('button, tp-yt-paper-button, [role="button"]');
     if (loadBtn && typeof loadBtn.click === 'function') {
       loadBtn.click();
     }
 
     // Direct continuation dispatch for instant comment loading
     try {
-      comments.dispatchEvent(new CustomEvent('yt-load-next-continuation', { bubbles: true }));
+      comments.dispatchEvent(
+        new CustomEvent('yt-load-next-continuation', { bubbles: true })
+      );
       window.dispatchEvent(new Event('scroll'));
     } catch (_) {}
 
@@ -287,46 +525,152 @@
     triggerContinuation();
   }
 
-  function openLiveChat() {
-    // Custom-element methods (setCollapsedState / onShowHideChat) live on the page
-    // world prototypes, so the request is handed to player.js. The DOM fallbacks
-    // below work from this world and cover a closed chat panel.
-    try {
-      window.dispatchEvent(new CustomEvent('ytlite-open-chat'));
-    } catch (_) {}
+  function findLiveChatToggleButton() {
+    const showBtns = document.querySelectorAll(
+      '#show-hide-button button, [aria-label="Show chat"]'
+    );
+    for (let i = 0; i < showBtns.length; i++) {
+      const el = showBtns[i];
+      if (
+        (el.classList && el.classList.contains('ytlite-comments-btn')) ||
+        (typeof el.closest === 'function' &&
+          el.closest('.ytlite-button-container'))
+      ) {
+        continue;
+      }
+      const label = (
+        getAttr(el, 'aria-label') ||
+        el.textContent ||
+        ''
+      ).toLowerCase();
+      if (label.includes('hide')) continue;
+      return el;
+    }
 
+    return document.querySelector(
+      '#teaser-carousel button, yt-video-metadata-carousel-view-model [role="button"], yt-video-metadata-carousel-view-model button'
+    );
+  }
+
+  function applyChatOpenedState() {
+    if (!isWatchPage()) return;
     const chat = document.querySelector('ytd-live-chat-frame, #chat');
     if (chat) {
       chat.removeAttribute('collapsed');
       chat.removeAttribute('hidden');
       chat.removeAttribute('hide-chat-frame');
     }
-    const showBtn = document.querySelector('#show-hide-button button, [aria-label="Show chat"]');
-    if (showBtn) {
-      try { showBtn.click(); } catch (_) {}
-    }
-    const teaserBtn = document.querySelector('#teaser-carousel button, yt-video-metadata-carousel-view-model [role="button"], yt-video-metadata-carousel-view-model button');
-    if (teaserBtn) {
-      try { teaserBtn.click(); } catch (_) {}
-    }
     document.documentElement.classList.add('ytlite-sidebar-active');
     removeExistingButton();
+    disconnectObserver();
     scheduleSidebarUpdate();
+  }
+
+  function openLiveChat() {
+    // Custom-element methods (setCollapsedState / onShowHideChat) live on the page
+    // world prototypes, so the request is handed to player.js first.
+    let handledByMain = false;
+    const onOpened = () => {
+      handledByMain = true;
+    };
+    window.addEventListener('ytlite-chat-opened', onOpened);
+    try {
+      window.dispatchEvent(new CustomEvent('ytlite-open-chat'));
+    } catch (_) {
+    } finally {
+      window.removeEventListener('ytlite-chat-opened', onOpened);
+    }
+
+    // Only click a single UI fallback toggle if MAIN world did not already open chat.
+    if (!handledByMain) {
+      const chat = document.querySelector('ytd-live-chat-frame, #chat');
+      if (!chat || isLiveChatClosed(chat)) {
+        const toggleBtn = findLiveChatToggleButton();
+        if (toggleBtn) {
+          try {
+            toggleBtn.click();
+          } catch (_) {}
+        }
+      }
+      applyChatOpenedState();
+    }
   }
 
   let isPlacing = false;
 
-  function place() {
+  function needsRevealButton(watch = isWatchPage(), isLive = isLiveVideo()) {
+    if (!watch) return false;
+    const liveActive =
+      isLive || document.documentElement.classList.contains('ytlite-live');
+    if (liveActive) {
+      return (
+        !document.documentElement.classList.contains('ytlite-sidebar-active') &&
+        isLiveChatClosed() &&
+        !isChatUnavailable()
+      );
+    }
+    return document.documentElement.classList.contains('ytlite-comments-hide');
+  }
+
+  function isHiddenSidebarNode(el) {
+    return Boolean(
+      el &&
+      typeof el.closest === 'function' &&
+      el.closest('#secondary, #panels')
+    );
+  }
+
+  function queryVisibleMountTarget(selector) {
+    const matches = document.querySelectorAll(selector);
+    for (let i = 0; i < matches.length; i++) {
+      if (!isHiddenSidebarNode(matches[i])) return matches[i];
+    }
+    return null;
+  }
+
+  function findMountTarget(isLive) {
+    if (!isLive) {
+      const commentsEl = queryVisibleMountTarget(
+        '#comments, ytd-comments, ytd-item-section-renderer[section-identifier="comment-item-section"]'
+      );
+      if (commentsEl) return { el: commentsEl, fallback: false };
+    }
+    const metaEl = queryVisibleMountTarget(
+      'ytd-watch-metadata, #below ytd-watch-metadata'
+    );
+    if (metaEl) return { el: metaEl, fallback: false };
+
+    const below = queryVisibleMountTarget('#below');
+    if (below && below.children.length > 0) {
+      return { el: below, fallback: false };
+    }
+
+    const colFallback =
+      queryVisibleMountTarget('#primary-inner') ||
+      queryVisibleMountTarget('#primary');
+    if (colFallback && colFallback.children.length > 0) {
+      return { el: colFallback, fallback: true };
+    }
+    return null;
+  }
+
+  function place(state) {
     if (isPlacing) return false;
-    if (!isWatchPage()) {
+    const watch = state?.watch !== undefined ? state.watch : isWatchPage();
+    if (!watch) {
       removeExistingButton();
       disconnectObserver();
       return false;
     }
 
-    const isLive = isLiveVideo() || document.documentElement.classList.contains('ytlite-live');
+    const isLive =
+      (state?.isLive !== undefined ? state.isLive : isLiveVideo()) ||
+      document.documentElement.classList.contains('ytlite-live');
     if (isLive) {
-      if (document.documentElement.classList.contains('ytlite-sidebar-active') || !isLiveChatClosed()) {
+      if (
+        document.documentElement.classList.contains('ytlite-sidebar-active') ||
+        !isLiveChatClosed()
+      ) {
         removeExistingButton();
         disconnectObserver();
         return false;
@@ -337,7 +681,9 @@
         return false;
       }
     } else {
-      if (!document.documentElement.classList.contains('ytlite-comments-hide')) {
+      if (
+        !document.documentElement.classList.contains('ytlite-comments-hide')
+      ) {
         removeExistingButton();
         disconnectObserver();
         return false;
@@ -348,24 +694,35 @@
     // replace "Show comments" with "Show chat" (or vice versa), not reuse it.
     const mode = isLive ? 'chat' : 'comments';
 
-    if (buttonContainer && buttonContainer.isConnected && getAttr(buttonContainer, 'data-ytlite-mode') === mode) {
-      return true;
+    let existing =
+      buttonContainer && buttonContainer.isConnected ? buttonContainer : null;
+    if (!existing) {
+      const found = document.querySelector('.ytlite-button-container');
+      if (found && found.isConnected) existing = found;
     }
 
-    const existing = document.querySelector('.ytlite-button-container');
-    if (existing && existing.isConnected) {
-      if (getAttr(existing, 'data-ytlite-mode') === mode) {
-        buttonContainer = existing;
-        return true;
+    let resolvedTarget = null;
+    if (existing) {
+      const sameMode = getAttr(existing, 'data-ytlite-mode') === mode;
+      const inHiddenSidebar = isHiddenSidebarNode(existing);
+      if (sameMode && !inHiddenSidebar) {
+        if (!hasAttr(existing, 'data-ytlite-fallback')) {
+          buttonContainer = existing;
+          return true;
+        }
+        resolvedTarget = findMountTarget(isLive);
+        if (!resolvedTarget || resolvedTarget.fallback) {
+          buttonContainer = existing;
+          return true;
+        }
       }
       removeExistingButton();
     }
 
-    // Find the best placement target lazily
-    const targetEl = (!isLive && document.querySelector('#comments, ytd-comments, ytd-item-section-renderer[section-identifier="comment-item-section"]')) ||
-      document.querySelector('ytd-watch-metadata, #below ytd-watch-metadata') ||
-      (!isLive && document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-comments-section"]')) ||
-      (() => { const b = document.getElementById('below'); return b && b.children.length > 0 ? b : null; })();
+    // Find the best visible mount target outside hidden #secondary / #panels.
+    const targetInfo = resolvedTarget || findMountTarget(isLive);
+    const targetEl = targetInfo?.el;
+    const isFallback = Boolean(targetInfo?.fallback);
 
     if (!targetEl || !targetEl.parentElement) return false;
 
@@ -376,10 +733,14 @@
       const container = document.createElement('div');
       container.className = 'ytlite-button-container';
       container.setAttribute('data-ytlite-mode', mode);
+      if (isFallback) {
+        container.setAttribute('data-ytlite-fallback', 'true');
+      }
 
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'ytlite-comments-btn';
+      btn.setAttribute('aria-expanded', 'false');
       if (isLive) {
         btn.textContent = 'Show chat';
         btn.addEventListener('click', openLiveChat, { once: true });
@@ -390,7 +751,7 @@
 
       container.appendChild(btn);
 
-      if (targetEl.id === 'below') {
+      if (targetEl.id === 'below' || isFallback) {
         targetEl.appendChild(container);
       } else if (targetEl.tagName === 'YTD-WATCH-METADATA') {
         targetEl.parentElement.insertBefore(container, targetEl.nextSibling);
@@ -406,16 +767,45 @@
   }
 
   function startScopedObserver() {
-    disconnectObserver();
-    if (!isWatchPage() || !document.documentElement.classList.contains('ytlite-comments-hide')) {
+    if (!needsRevealButton()) {
+      disconnectObserver();
       return;
     }
     if (buttonContainer && buttonContainer.isConnected) {
+      disconnectObserver();
       return;
     }
 
+    // Scope observer strictly to watch/app-shell containers with subtree: false.
+    // This completely ignores internal player mutations (buffering, timecode, subtitles).
+    const targetSelectors = [
+      '#below',
+      '#primary-inner',
+      '#primary',
+      'ytd-watch-flexy, ytd-watch-grid',
+      'ytd-page-manager, #page-manager',
+      'ytd-app',
+    ];
+    let target = null;
+    for (const sel of targetSelectors) {
+      const candidate = document.querySelector(sel);
+      if (candidate && candidate.isConnected) {
+        target = candidate;
+        break;
+      }
+    }
+    if (!target) {
+      disconnectObserver();
+      return;
+    }
+    if (observer && observerTarget === target && target.isConnected) {
+      return;
+    }
+
+    disconnectObserver();
+    observerTarget = target;
     observer = new MutationObserver(() => {
-      if (!isWatchPage() || !document.documentElement.classList.contains('ytlite-comments-hide')) {
+      if (!needsRevealButton()) {
         disconnectObserver();
         return;
       }
@@ -428,22 +818,7 @@
       }
     });
 
-    // Scope observer strictly to container elements with subtree: false
-    // This completely ignores internal player mutations (buffering, timecode, subtitles)
-    const below = document.getElementById('below');
-    const primaryInner = document.getElementById('primary-inner');
-    const primary = document.getElementById('primary');
-    const watchFlexy = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
-
-    const target = (below?.isConnected ? below : null) ||
-                   (primaryInner?.isConnected ? primaryInner : null) ||
-                   (primary?.isConnected ? primary : null) ||
-                   (watchFlexy?.isConnected ? watchFlexy : null) ||
-                   document.body;
-
-    if (target) {
-      observer.observe(target, { childList: true, subtree: false });
-    }
+    observer.observe(target, { childList: true, subtree: false });
 
     // Safety timeout: never leak observer into video playback
     observerSafetyTimer = setTimeout(() => {
@@ -468,16 +843,23 @@
 
   function updateVideoBtnState(btn) {
     if (!btn) return;
-    const isBlocked = document.documentElement.classList.contains('ytlite-video-blocked');
-    btn.setAttribute('aria-label', isBlocked ? 'Unblock video (currently Audio Only)' : 'Block video (switch to Audio Only)');
-    btn.setAttribute('title', isBlocked ? 'Unblock video (currently Audio Only)' : 'Block video (switch to Audio Only)');
+    const isBlocked = document.documentElement.classList.contains(
+      'ytlite-video-blocked'
+    );
+    btn.setAttribute('aria-label', 'AudioOnly');
+    btn.setAttribute(
+      'title',
+      isBlocked
+        ? 'Unblock video (currently AudioOnly)'
+        : 'Block video (switch to AudioOnly)'
+    );
     btn.setAttribute('aria-pressed', isBlocked ? 'true' : 'false');
     btn.textContent = 'AudioOnly';
     btn.classList.toggle('ytlite-ao', isBlocked);
   }
 
-  function placeVideoToggleButton() {
-    if (!isWatchPage()) {
+  function placeVideoToggleButton(watch = isWatchPage()) {
+    if (!watch) {
       disconnectVideoObserver();
       return false;
     }
@@ -504,17 +886,27 @@
 
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const nextBlocked = !document.documentElement.classList.contains('ytlite-video-blocked');
-      document.documentElement.classList.toggle('ytlite-video-blocked', nextBlocked);
+      const nextBlocked = !document.documentElement.classList.contains(
+        'ytlite-video-blocked'
+      );
+      document.documentElement.classList.toggle(
+        'ytlite-video-blocked',
+        nextBlocked
+      );
       try {
-        localStorage.setItem('ytlite-block-video', nextBlocked ? 'true' : 'false');
+        localStorage.setItem(
+          'ytlite-block-video',
+          nextBlocked ? 'true' : 'false'
+        );
       } catch (_) {}
       updateVideoBtnState(btn);
-      window.dispatchEvent(new CustomEvent('ytlite-set-quality', { detail: { quality: nextBlocked ? '144' : '480' } }));
+      window.dispatchEvent(new CustomEvent('ytlite-set-quality'));
     });
 
     // Ensure we find the top-level container inside rightControls, not an inner child
-    const autonavContainer = rightControls.querySelector('.ytp-autonav-toggle-button-container');
+    const autonavContainer = rightControls.querySelector(
+      '.ytp-autonav-toggle-button-container'
+    );
     if (autonavContainer && autonavContainer.parentElement === rightControls) {
       rightControls.insertBefore(btn, autonavContainer);
     } else {
@@ -531,10 +923,15 @@
     if (!isWatchPage()) return;
     if (videoToggleBtn && videoToggleBtn.isConnected) return;
 
-    // Query the list in order. A single querySelector would return #primary-inner
-    // (an ancestor of the player, so first in document order) and observe the
-    // whole primary column on every mutation instead of the player.
-    const targetSelectors = ['.html5-video-player', '#movie_player', '#ytd-player', '#player', '#player-container-outer', '#primary-inner'];
+    // Query the player container list in order from narrowest to widest without
+    // falling back to #primary-inner, which would observe comment/metadata mutations.
+    const targetSelectors = [
+      '.html5-video-player',
+      '#movie_player',
+      '#ytd-player',
+      '#player',
+      '#player-container-outer',
+    ];
     let target = null;
     for (const sel of targetSelectors) {
       target = document.querySelector(sel);
@@ -558,60 +955,81 @@
     }, 4000);
   }
 
-  function initVideoToggle() {
-    if (!isWatchPage()) {
+  function initVideoToggle(watch = isWatchPage(), syncQuality = false) {
+    if (!watch) {
       disconnectVideoObserver();
       return;
     }
-    if (!placeVideoToggleButton()) {
+    if (!placeVideoToggleButton(watch)) {
       startScopedVideoObserver();
     }
-    const isBlocked = document.documentElement.classList.contains('ytlite-video-blocked');
-    window.dispatchEvent(new CustomEvent('ytlite-set-quality', { detail: { quality: isBlocked ? '144' : '480' } }));
+    if (syncQuality) {
+      window.dispatchEvent(new CustomEvent('ytlite-set-quality'));
+    }
   }
 
-  function init() {
-    updateSidebarState();
-    if (!isWatchPage()) {
-      clearSidebarTimers();
+  function syncWatchUi(state) {
+    const res = updateSidebarState(state);
+    if (!res.watch) {
+      disconnectChatObserver();
       disconnectObserver();
-      disconnectVideoObserver();
-      removeExistingButton();
-      document.documentElement.classList.remove('ytlite-sidebar-active');
-      document.documentElement.classList.remove('ytlite-live');
-      return;
+      return res;
     }
 
-    initVideoToggle();
-
-    const isLive = isLiveVideo() || document.documentElement.classList.contains('ytlite-live');
-    if (isLive && !isLiveChatClosed()) {
-      clearSidebarTimers();
-      disconnectObserver();
-      removeExistingButton();
-      return;
+    const liveActive =
+      res.isLive || document.documentElement.classList.contains('ytlite-live');
+    if (liveActive && !document.querySelector('ytd-live-chat-frame, #chat')) {
+      startScopedChatObserver();
+    } else {
+      disconnectChatObserver();
     }
 
-    // Catch deferred custom element hydration on direct cold watch page loads
-    clearSidebarTimers();
-    sidebarUpdateTimers.push(setTimeout(updateSidebarState, 300));
-    sidebarUpdateTimers.push(setTimeout(updateSidebarState, 1200));
-    sidebarUpdateTimers.push(setTimeout(updateSidebarState, 3000));
-
-    if (!isLive && !document.documentElement.classList.contains('ytlite-comments-hide')) {
-      disconnectObserver();
-      return;
-    }
-
-    if (!place()) {
+    if (needsRevealButton(res.watch, res.isLive) && !res.placed) {
       startScopedObserver();
     } else {
       disconnectObserver();
     }
+    return res;
+  }
+
+  function init(state) {
+    const syncQuality = state === true || Boolean(state?.syncQuality);
+    const watch = state?.watch !== undefined ? state.watch : isWatchPage();
+    clearHydrationTimers();
+    clearSidebarTimers();
+    disconnectChatObserver();
+    disconnectObserver();
+
+    if (!watch) {
+      disconnectVideoObserver();
+      disconnectPanelObserver();
+      removeExistingButton();
+      document.documentElement.classList.remove(
+        'ytlite-sidebar-active',
+        'ytlite-live'
+      );
+      return;
+    }
+
+    initVideoToggle(watch, syncQuality);
+
+    syncWatchUi({
+      watch,
+      isLive: state?.isLive,
+    });
+
+    // Catch deferred custom element hydration (chat frame, disabled message, comments)
+    // on cold loads and SPA transitions.
+    hydrationTimers.push(setTimeout(() => syncWatchUi(), 300));
+    hydrationTimers.push(setTimeout(() => syncWatchUi(), 1200));
+    hydrationTimers.push(setTimeout(() => syncWatchUi(), 3000));
   }
 
   function handleNavigateStart(e) {
+    clearHydrationTimers();
     clearSidebarTimers();
+    disconnectPanelObserver();
+    disconnectChatObserver();
     cachedVideoId = null;
     cachedIsLive = false;
     cachedDefinitive = false;
@@ -619,13 +1037,18 @@
     const navUrl = getUrlFromEvent(e);
     const willBeWatch = navUrl ? isWatchUrl(navUrl) : isWatchPage();
     if (willBeWatch) {
-      document.documentElement.classList.add('ytlite-comments-hide');
-      if (navUrl && navUrl.includes('/live')) {
-        document.documentElement.classList.add('ytlite-live');
-        document.documentElement.classList.add('ytlite-sidebar-active');
-      } else if (navUrl && !navUrl.includes('/live')) {
-        document.documentElement.classList.remove('ytlite-live');
-        document.documentElement.classList.remove('ytlite-sidebar-active');
+      if (navUrl && isLiveUrl(navUrl)) {
+        document.documentElement.classList.remove('ytlite-comments-hide');
+        document.documentElement.classList.add(
+          'ytlite-live',
+          'ytlite-sidebar-active'
+        );
+      } else {
+        document.documentElement.classList.add('ytlite-comments-hide');
+        if (navUrl) {
+          document.documentElement.classList.remove('ytlite-live');
+          document.documentElement.classList.remove('ytlite-sidebar-active');
+        }
       }
     } else {
       document.documentElement.classList.remove('ytlite-comments-hide');
@@ -637,85 +1060,118 @@
     disconnectVideoObserver();
   }
 
-  function handleNavigateFinish(e) {
-    clearSidebarTimers();
+  function extractEventLiveSignal(e) {
     const resp = e?.detail?.response;
-    const pr = e?.detail?.playerResponse || resp?.playerResponse;
-    const isLiveFromEvent = Boolean(pr?.videoDetails?.isLive || pr?.videoDetails?.isLiveContent);
-    const hasChatFromEvent = Boolean(
-      resp?.contents?.twoColumnWatchNextResults?.conversationBar?.liveChatRenderer ||
-      resp?.contents?.twoColumnWatchNextResults?.conversationBar?.liveChatRendererModel ||
-      pr?.liveChatRenderer
-    );
-    const match = location.search && location.search.match(/[?&]v=([^&#]+)/);
-    if (match && (pr || resp)) {
-      // Record the authoritative signal so isLiveVideo() never has to scan scripts.
-      eventLiveSignal = { videoId: match[1], isLive: isLiveFromEvent || hasChatFromEvent };
-      cachedVideoId = match[1];
-      cachedIsLive = eventLiveSignal.isLive;
-    }
-    if (isLiveFromEvent || hasChatFromEvent) {
-      document.documentElement.classList.add('ytlite-live');
-      document.documentElement.classList.add('ytlite-sidebar-active');
-      document.documentElement.classList.remove('ytlite-comments-hide');
+    const pr =
+      e?.detail?.playerResponse ||
+      resp?.playerResponse ||
+      resp?.response?.playerResponse;
+    const contents = resp?.response?.contents || resp?.contents;
+    const convBar = contents?.twoColumnWatchNextResults?.conversationBar;
+    const chatRenderer =
+      convBar?.liveChatRenderer ||
+      convBar?.liveChatRendererModel ||
+      pr?.liveChatRenderer;
+    const vd = pr?.videoDetails;
+
+    if (vd && typeof vd === 'object') {
+      if (vd.isLive === true) return { isLive: true, definitive: true };
+      if (vd.isLiveContent === true) return { isLive: false, definitive: true };
+      if ('isLive' in vd || Object.keys(vd).length > 0)
+        return { isLive: false, definitive: true };
     }
 
-    updateSidebarState();
-    if (isWatchPage()) {
-      if (!isLiveVideo()) {
-        document.documentElement.classList.add('ytlite-comments-hide');
+    if (chatRenderer && typeof chatRenderer === 'object') {
+      if (
+        chatRenderer.isReplay === true ||
+        chatRenderer.liveChatRenderer?.isReplay === true
+      ) {
+        return { isLive: false, definitive: true };
       }
-      removeExistingButton();
-      init();
-    } else {
-      document.documentElement.classList.remove('ytlite-comments-hide');
-      document.documentElement.classList.remove('ytlite-live');
-      document.documentElement.classList.remove('ytlite-sidebar-active');
-      disconnectObserver();
-      removeExistingButton();
+      return { isLive: true, definitive: false };
     }
+
+    return null;
+  }
+
+  function applyEventLiveSignal(e) {
+    const signal = extractEventLiveSignal(e);
+    const videoId = videoIdFromUrl();
+    if (videoId && signal) {
+      const hasDefinitive =
+        eventLiveSignal &&
+        eventLiveSignal.videoId === videoId &&
+        eventLiveSignal.definitive;
+      if (signal.definitive || !hasDefinitive) {
+        eventLiveSignal = {
+          videoId,
+          isLive: signal.isLive,
+          definitive: signal.definitive,
+        };
+        cacheLive(videoId, signal.isLive, signal.definitive);
+      }
+    }
+    return signal;
+  }
+
+  function handleNavigateFinish(e) {
+    clearHydrationTimers();
+    clearSidebarTimers();
+    disconnectPanelObserver();
+    disconnectChatObserver();
+    const signal = applyEventLiveSignal(e);
+
+    const watch = isWatchPage();
+    if (!watch) {
+      document.documentElement.classList.remove('ytlite-comments-hide');
+      init({ watch: false });
+      return;
+    }
+
+    const isLive = signal?.definitive ? signal.isLive : isLiveVideo();
+    if (isLive) {
+      document.documentElement.classList.add('ytlite-live');
+      document.documentElement.classList.remove('ytlite-comments-hide');
+    } else {
+      document.documentElement.classList.remove('ytlite-live');
+      document.documentElement.classList.add('ytlite-comments-hide');
+    }
+    init({ watch: true, isLive });
   }
 
   function handleDataUpdated(e) {
-    const resp = e?.detail?.response;
-    const pr = e?.detail?.playerResponse || resp?.playerResponse;
-    if (pr || resp) {
-      const videoId = videoIdFromUrl();
-      const isLive = Boolean(pr?.videoDetails?.isLive || pr?.videoDetails?.isLiveContent) ||
-        Boolean(resp?.contents?.twoColumnWatchNextResults?.conversationBar?.liveChatRenderer ||
-                resp?.contents?.twoColumnWatchNextResults?.conversationBar?.liveChatRendererModel ||
-                pr?.liveChatRenderer);
-      if (videoId) eventLiveSignal = { videoId, isLive };
-    }
-    updateSidebarState();
-    if (isWatchPage()) {
-      placeVideoToggleButton();
-    }
-    if (!isWatchPage() || isLiveVideo() || !document.documentElement.classList.contains('ytlite-comments-hide')) {
-      return;
-    }
-    if (buttonContainer && buttonContainer.isConnected) {
-      return;
-    }
-    if (!place()) {
-      startScopedObserver();
-    } else {
-      disconnectObserver();
-    }
+    applyEventLiveSignal(e);
+    const { watch } = syncWatchUi();
+    if (!watch) return;
+    placeVideoToggleButton(watch);
   }
 
-  init();
+  init(true);
   document.addEventListener('yt-navigate-start', handleNavigateStart);
   document.addEventListener('yt-navigate-finish', handleNavigateFinish);
   document.addEventListener('yt-page-data-updated', handleDataUpdated);
+  window.addEventListener('ytlite-live-state', () => {
+    syncWatchUi();
+  });
+  window.addEventListener('ytlite-chat-opened', applyChatOpenedState);
   window.addEventListener('popstate', handleNavigateFinish);
-  document.addEventListener('click', scheduleSidebarUpdate, { passive: true });
-  document.addEventListener('keyup', (e) => {
-    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
-      scheduleSidebarUpdate();
-    }
-  }, { passive: true });
-  document.addEventListener('yt-engagement-panel-visibility-changed', scheduleSidebarUpdate, { passive: true });
-  document.addEventListener('yt-visibility-refresh', scheduleSidebarUpdate, { passive: true });
-  document.addEventListener('yt-chat-collapsed-changed', scheduleSidebarUpdate, { passive: true });
+  document.addEventListener(
+    'yt-engagement-panel-visibility-changed',
+    handlePanelLifecycleEvent,
+    { passive: true }
+  );
+  document.addEventListener(
+    'yt-visibility-refresh',
+    handlePanelLifecycleEvent,
+    { passive: true }
+  );
+  document.addEventListener(
+    'yt-chat-collapsed-changed',
+    handlePanelLifecycleEvent,
+    { passive: true }
+  );
+  document.addEventListener('yt-action', handlePanelAction, {
+    capture: true,
+    passive: true,
+  });
 })();
