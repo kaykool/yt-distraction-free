@@ -26,7 +26,10 @@
 
   function videoIdFromUrl() {
     const match = location.search && location.search.match(/[?&]v=([^&#]+)/);
-    return match ? match[1] : null;
+    if (match) return match[1];
+    const liveMatch =
+      location.pathname && location.pathname.match(/^\/live\/([^/?#]+)/);
+    return liveMatch ? liveMatch[1] : null;
   }
 
   function cacheLive(videoId, isLive, definitive = true) {
@@ -39,18 +42,31 @@
   }
 
   function isLiveVideo() {
-    if (location.pathname.startsWith('/live')) return true;
-
     const currentVideoId = videoIdFromUrl();
+    const root = document.documentElement;
+    const replayFor = getAttr(root, 'data-ytlite-replay');
+    const isPublishedReplay = Boolean(
+      replayFor &&
+      (!currentVideoId || replayFor === 'true' || replayFor === currentVideoId)
+    );
 
     // 1. Authoritative: YouTube told us via yt-navigate-finish / yt-page-data-updated.
-    //    Checked before the cache because the payload can arrive *after* an initial
-    //    probe already concluded "not live" on a not-yet-hydrated page.
+    //    Checked before /live path checks and caches so Stream Replays on /live/<id>
+    //    and late payloads always win over tentative heuristics.
     if (eventLiveSignal && eventLiveSignal.videoId === currentVideoId) {
       return cacheLive(currentVideoId, eventLiveSignal.isLive);
     }
 
-    // 2. A definitive answer for this video id is stable. Only *definitive* results
+    // 2. Authoritative Stream Replay marker published by MAIN-world player.js.
+    //    Checked before /live path checks, cache, and DOM stamp cues so archived
+    //    replays never leak into Live Stream layout.
+    if (isPublishedReplay) {
+      return cacheLive(currentVideoId, false);
+    }
+
+    if (location.pathname.startsWith('/live')) return true;
+
+    // 3. A definitive answer for this video id is stable. Only *definitive* results
     //    are trusted: an early probe on a not-yet-hydrated page can miss a live
     //    stream, so those indeterminate negatives must not be cached.
     if (
@@ -61,42 +77,59 @@
       return cachedIsLive;
     }
 
-    // 3. Cheap, stable DOM attributes — but only when they describe the video in
-    //    the URL. ytd-watch-flexy is reused across SPA navigations and keeps the
-    //    previous video's [live]/[should-stamp-chat] attributes and its video-id
-    //    for over a second after the URL has already changed. Trusting those would
-    //    misclassify the new video, so a mismatch skips the DOM cues entirely.
+    // 4. Cheap, stable DOM attributes — but only when they describe the video in
+    //    the URL. ytd-watch-flexy is reused across SPA navigations and can drop or
+    //    retain the previous video's video-id and [live]/[should-stamp-chat] attributes
+    //    across a transition, so require an exact video-id match whenever present.
     const watchEl = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
     const domVideoId = getAttr(watchEl, 'video-id');
     const domIsCurrent =
-      !currentVideoId || !domVideoId || domVideoId === currentVideoId;
+      Boolean(watchEl) && (!currentVideoId || domVideoId === currentVideoId);
     if (
       domIsCurrent &&
-      watchEl &&
-      (hasAttr(watchEl, 'live') ||
-        hasAttr(watchEl, 'is-live') ||
-        hasAttr(watchEl, 'live-chat-present-and-expanded') ||
-        hasAttr(watchEl, 'should-stamp-chat'))
+      (hasAttr(watchEl, 'live') || hasAttr(watchEl, 'is-live'))
     ) {
       return cacheLive(currentVideoId, true);
+    }
+
+    // Chat-stamp attributes appear on both Live Streams and Stream Replays, so keep
+    // them non-definitive until authoritative Replay/Live metadata resolves.
+    if (
+      domIsCurrent &&
+      (hasAttr(watchEl, 'live-chat-present-and-expanded') ||
+        hasAttr(watchEl, 'should-stamp-chat'))
+    ) {
+      return cacheLive(currentVideoId, true, false);
     }
 
     const badge = document.querySelector('.ytp-live-badge');
     if (
       domIsCurrent &&
       badge &&
+      !hasAttr(badge, 'hidden') &&
+      !badge.hidden &&
       (hasAttr(badge, 'disabled') ||
+        hasAttr(badge, 'data-tooltip-title') ||
+        hasAttr(badge, 'aria-label') ||
         (badge.classList &&
           badge.classList.contains('ytp-live-badge-is-livehead')))
     ) {
       return cacheLive(currentVideoId, true);
     }
 
-    // 4. Player API, via the flag player.js (MAIN world) publishes on <html>.
+    if (
+      domIsCurrent &&
+      document.querySelector(
+        '.ytp-time-display.ytp-live, .html5-video-player.ytp-live'
+      )
+    ) {
+      return cacheLive(currentVideoId, true);
+    }
+
+    // 5. Player API, via the flag player.js (MAIN world) publishes on <html>.
     //    The player object's methods are page-JS expandos and do not exist in this
     //    world, so the player cannot be asked directly from here. Only a positive
     //    answer is ever published there; absence means "no authoritative answer".
-    const root = document.documentElement;
     if (hasAttr(root, 'data-ytlite-live')) {
       const publishedFor = getAttr(root, 'data-ytlite-video');
       // A flag published for a different video is stale until player.js refreshes it.
@@ -133,25 +166,29 @@
     );
   }
 
-  function isSidebarNeeded(watch = isWatchPage()) {
+  function isSidebarNeeded(watch = isWatchPage(), isLive = isLiveVideo()) {
     if (!watch) return false;
 
     // The sidebar only earns its space when it has content to show. A live video
     // with no chat would otherwise reserve ~400px of column that hide.css empties
     // (the related-video list is hidden), leaving a blank gutter next to the player.
-    const chatFrame = document.querySelector('ytd-live-chat-frame, #chat');
-    if (chatFrame) {
-      if (!isLiveChatClosed(chatFrame) && !isChatUnavailable(chatFrame))
-        return true;
-    } else {
-      // Live chat can also be mounted as a bare iframe before its frame element
-      // exists. Only then is the iframe's own hidden state meaningful: YouTube
-      // hides chat by collapsing the frame element and leaves #chatframe unhidden,
-      // so checking the iframe alongside a collapsed frame would keep the sidebar
-      // open (and suppress the Show chat button) after the user hides chat, or
-      // after navigating away from a live video whose frame is still mounted.
-      const chatIframe = document.getElementById('chatframe');
-      if (chatIframe && !chatIframe.hidden) return true;
+    // Chat Replay mounts uncollapsed by default on YouTube replays, so only active
+    // Live Streams auto-open the Sidebar for chat.
+    if (isLive) {
+      const chatFrame = document.querySelector('ytd-live-chat-frame, #chat');
+      if (chatFrame) {
+        if (!isLiveChatClosed(chatFrame) && !isChatUnavailable(chatFrame))
+          return true;
+      } else {
+        // Live chat can also be mounted as a bare iframe before its frame element
+        // exists. Only then is the iframe's own hidden state meaningful: YouTube
+        // hides chat by collapsing the frame element and leaves #chatframe unhidden,
+        // so checking the iframe alongside a collapsed frame would keep the sidebar
+        // open (and suppress the Show chat button) after the user hides chat, or
+        // after navigating away from a live video whose frame is still mounted.
+        const chatIframe = document.getElementById('chatframe');
+        if (chatIframe && !chatIframe.hidden) return true;
+      }
     }
 
     // panels-expanded is only set once a panel is genuinely open.
@@ -205,6 +242,7 @@
       return { watch: false, isLive: false, needSidebar: false, placed: false };
     }
 
+    const wasLive = document.documentElement.classList.contains('ytlite-live');
     const isLive = state?.isLive !== undefined ? state.isLive : isLiveVideo();
     if (isLive) {
       document.documentElement.classList.add('ytlite-live');
@@ -212,9 +250,12 @@
       disconnectObserver();
     } else {
       document.documentElement.classList.remove('ytlite-live');
+      if (wasLive) {
+        document.documentElement.classList.add('ytlite-comments-hide');
+      }
     }
 
-    const needSidebar = isSidebarNeeded(watch);
+    const needSidebar = isSidebarNeeded(watch, isLive);
     let placed = false;
     if (needSidebar) {
       document.documentElement.classList.add('ytlite-sidebar-active');
@@ -341,6 +382,15 @@
       return u.pathname.startsWith('/watch') || u.pathname.startsWith('/live');
     } catch (_) {
       return isWatchPage();
+    }
+  }
+
+  function isLiveUrl(url) {
+    if (!url) return false;
+    try {
+      return new URL(url, location.origin).pathname.startsWith('/live');
+    } catch (_) {
+      return false;
     }
   }
 
@@ -824,10 +874,10 @@
     const willBeWatch = navUrl ? isWatchUrl(navUrl) : isWatchPage();
     if (willBeWatch) {
       document.documentElement.classList.add('ytlite-comments-hide');
-      if (navUrl && navUrl.includes('/live')) {
+      if (navUrl && isLiveUrl(navUrl)) {
         document.documentElement.classList.add('ytlite-live');
         document.documentElement.classList.add('ytlite-sidebar-active');
-      } else if (navUrl && !navUrl.includes('/live')) {
+      } else if (navUrl) {
         document.documentElement.classList.remove('ytlite-live');
         document.documentElement.classList.remove('ytlite-sidebar-active');
       }
@@ -841,30 +891,53 @@
     disconnectVideoObserver();
   }
 
+  function extractEventLiveSignal(e) {
+    const resp = e?.detail?.response;
+    const pr =
+      e?.detail?.playerResponse ||
+      resp?.playerResponse ||
+      resp?.response?.playerResponse;
+    const contents = resp?.response?.contents || resp?.contents;
+    const convBar = contents?.twoColumnWatchNextResults?.conversationBar;
+    const chatRenderer =
+      convBar?.liveChatRenderer ||
+      convBar?.liveChatRendererModel ||
+      pr?.liveChatRenderer;
+    const vd = pr?.videoDetails;
+
+    if (vd && typeof vd === 'object') {
+      if (vd.isLive === true) return { isLive: true, isReplay: false };
+      if (vd.isLiveContent === true) return { isLive: false, isReplay: true };
+      if ('isLive' in vd || Object.keys(vd).length > 0)
+        return { isLive: false, isReplay: false };
+    }
+
+    if (chatRenderer && typeof chatRenderer === 'object') {
+      if (
+        chatRenderer.isReplay === true ||
+        chatRenderer.liveChatRenderer?.isReplay === true
+      ) {
+        return { isLive: false, isReplay: true };
+      }
+      return { isLive: true, isReplay: false };
+    }
+
+    return null;
+  }
+
   function handleNavigateFinish(e) {
     clearSidebarTimers();
     disconnectPanelObserver();
-    const resp = e?.detail?.response;
-    const pr = e?.detail?.playerResponse || resp?.playerResponse;
-    const isLiveFromEvent = Boolean(
-      pr?.videoDetails?.isLive || pr?.videoDetails?.isLiveContent
-    );
-    const hasChatFromEvent = Boolean(
-      resp?.contents?.twoColumnWatchNextResults?.conversationBar
-        ?.liveChatRenderer ||
-      resp?.contents?.twoColumnWatchNextResults?.conversationBar
-        ?.liveChatRendererModel ||
-      pr?.liveChatRenderer
-    );
-    const match = location.search && location.search.match(/[?&]v=([^&#]+)/);
-    if (match && (pr || resp)) {
+    const signal = extractEventLiveSignal(e);
+    const videoId = videoIdFromUrl();
+    if (videoId && signal) {
       // Record the authoritative signal so isLiveVideo() never has to scan scripts.
       eventLiveSignal = {
-        videoId: match[1],
-        isLive: isLiveFromEvent || hasChatFromEvent,
+        videoId,
+        isLive: signal.isLive,
+        isReplay: signal.isReplay,
       };
-      cachedVideoId = match[1];
-      cachedIsLive = eventLiveSignal.isLive;
+      cacheLive(videoId, signal.isLive, true);
     }
 
     const watch = isWatchPage();
@@ -874,7 +947,7 @@
       return;
     }
 
-    const isLive = isLiveFromEvent || hasChatFromEvent || isLiveVideo();
+    const isLive = signal ? signal.isLive : isLiveVideo();
     if (isLive) {
       document.documentElement.classList.add(
         'ytlite-live',
@@ -882,26 +955,22 @@
       );
       document.documentElement.classList.remove('ytlite-comments-hide');
     } else {
+      document.documentElement.classList.remove('ytlite-live');
       document.documentElement.classList.add('ytlite-comments-hide');
     }
     init({ watch: true, isLive });
   }
 
   function handleDataUpdated(e) {
-    const resp = e?.detail?.response;
-    const pr = e?.detail?.playerResponse || resp?.playerResponse;
-    if (pr || resp) {
-      const videoId = videoIdFromUrl();
-      const isLive =
-        Boolean(pr?.videoDetails?.isLive || pr?.videoDetails?.isLiveContent) ||
-        Boolean(
-          resp?.contents?.twoColumnWatchNextResults?.conversationBar
-            ?.liveChatRenderer ||
-          resp?.contents?.twoColumnWatchNextResults?.conversationBar
-            ?.liveChatRendererModel ||
-          pr?.liveChatRenderer
-        );
-      if (videoId) eventLiveSignal = { videoId, isLive };
+    const signal = extractEventLiveSignal(e);
+    const videoId = videoIdFromUrl();
+    if (videoId && signal) {
+      eventLiveSignal = {
+        videoId,
+        isLive: signal.isLive,
+        isReplay: signal.isReplay,
+      };
+      cacheLive(videoId, signal.isLive, true);
     }
     const { watch, isLive, placed } = updateSidebarState();
     if (!watch) return;
@@ -926,6 +995,17 @@
   document.addEventListener('yt-navigate-start', handleNavigateStart);
   document.addEventListener('yt-navigate-finish', handleNavigateFinish);
   document.addEventListener('yt-page-data-updated', handleDataUpdated);
+  window.addEventListener('ytlite-live-state', () => {
+    const { watch, isLive, placed } = updateSidebarState();
+    if (!watch) return;
+    if (
+      !isLive &&
+      document.documentElement.classList.contains('ytlite-comments-hide') &&
+      !placed
+    ) {
+      startScopedObserver();
+    }
+  });
   window.addEventListener('popstate', handleNavigateFinish);
   document.addEventListener(
     'yt-engagement-panel-visibility-changed',

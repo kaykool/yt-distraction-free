@@ -24,7 +24,9 @@ describe('player.js: audio-only quality control', () => {
   });
 
   test('falls back to setPlaybackQuality when the range API is missing', () => {
-    const { env, parts, qualityCalls } = bootPlayer({ 'ytlite-block-video': 'true' });
+    const { env, parts, qualityCalls } = bootPlayer({
+      'ytlite-block-video': 'true',
+    });
     delete parts.moviePlayer.setPlaybackQualityRange;
     env.window.dispatchEvent(new env.ctx.CustomEvent('ytlite-set-quality'));
     expect(qualityCalls).toEqual([['single', 'tiny']]);
@@ -41,7 +43,10 @@ describe('player.js: audio-only quality control', () => {
 
     env.localStorage.setItem('ytlite-block-video', 'false');
     env.window.dispatchEvent(new env.ctx.CustomEvent('ytlite-set-quality'));
-    expect(qualityCalls).toEqual([['range', 'tiny', 'tiny'], ['range', 'hd1080', 'hd1080']]);
+    expect(qualityCalls).toEqual([
+      ['range', 'tiny', 'tiny'],
+      ['range', 'hd1080', 'hd1080'],
+    ]);
 
     // The saved level is consumed on restore, so a later event cannot re-apply it.
     env.window.dispatchEvent(new env.ctx.CustomEvent('ytlite-set-quality'));
@@ -55,15 +60,23 @@ describe('player.js: audio-only quality control', () => {
   });
 
   test('missing player does not throw', () => {
-    const { env, parts, qualityCalls } = bootPlayer({ 'ytlite-block-video': 'true' });
+    const { env, parts, qualityCalls } = bootPlayer({
+      'ytlite-block-video': 'true',
+    });
     parts.moviePlayer.remove();
-    expect(() => env.window.dispatchEvent(new env.ctx.CustomEvent('ytlite-set-quality'))).not.toThrow();
+    expect(() =>
+      env.window.dispatchEvent(new env.ctx.CustomEvent('ytlite-set-quality'))
+    ).not.toThrow();
     expect(qualityCalls.length).toBe(0);
   });
 
   test('reads shared localStorage, not the (world-crossing) event detail', () => {
     const { env, qualityCalls } = bootPlayer({ 'ytlite-block-video': 'true' });
-    env.window.dispatchEvent(new env.ctx.CustomEvent('ytlite-set-quality', { detail: { quality: '480' } }));
+    env.window.dispatchEvent(
+      new env.ctx.CustomEvent('ytlite-set-quality', {
+        detail: { quality: '480' },
+      })
+    );
     // localStorage is the source of truth; the stale detail must be ignored.
     expect(qualityCalls).toEqual([['range', 'tiny', 'tiny']]);
   });
@@ -129,7 +142,10 @@ describe('player.js: live-state publication (isolated world cannot call the play
 
   test('publishes a positive isLive on <html> so the isolated world can read it', () => {
     const { env, parts } = bootPlayer();
-    parts.moviePlayer.getVideoData = () => ({ isLive: true, video_id: 'abc123' });
+    parts.moviePlayer.getVideoData = () => ({
+      isLive: true,
+      video_id: 'abc123',
+    });
     env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
     env.advance(700);
     expect(attr(env, 'data-ytlite-live')).toBe('true');
@@ -141,7 +157,10 @@ describe('player.js: live-state publication (isolated world cannot call the play
     // definitive, so it outranked the DOM's own [live] attribute and a live stream
     // could render as a normal video.
     const { env, parts } = bootPlayer();
-    parts.moviePlayer.getVideoData = () => ({ isLive: false, video_id: 'abc123' });
+    parts.moviePlayer.getVideoData = () => ({
+      isLive: false,
+      video_id: 'abc123',
+    });
     env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
     env.advance(700);
     expect(attr(env, 'data-ytlite-live')).toBeNull();
@@ -150,13 +169,19 @@ describe('player.js: live-state publication (isolated world cannot call the play
 
   test('a stale positive is dropped once the player reports not-live', () => {
     const { env, parts } = bootPlayer();
-    parts.moviePlayer.getVideoData = () => ({ isLive: true, video_id: 'abc123' });
+    parts.moviePlayer.getVideoData = () => ({
+      isLive: true,
+      video_id: 'abc123',
+    });
     env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
     env.advance(700);
     expect(attr(env, 'data-ytlite-live')).toBe('true');
 
     let live = true;
-    parts.moviePlayer.getVideoData = () => ({ isLive: live, video_id: 'abc123' });
+    parts.moviePlayer.getVideoData = () => ({
+      isLive: live,
+      video_id: 'abc123',
+    });
     live = false;
     env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
     env.advance(700);
@@ -166,13 +191,19 @@ describe('player.js: live-state publication (isolated world cannot call the play
   test('a missing or broken player API publishes nothing and does not throw', () => {
     const { env, parts } = bootPlayer();
     parts.moviePlayer.remove();
-    expect(() => { env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish')); env.advance(700); }).not.toThrow();
+    expect(() => {
+      env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
+      env.advance(700);
+    }).not.toThrow();
     expect(attr(env, 'data-ytlite-live')).toBeNull();
   });
 
   test('a stale flag is cleared when the next video starts', () => {
     const { env, parts } = bootPlayer();
-    parts.moviePlayer.getVideoData = () => ({ isLive: true, video_id: 'abc123' });
+    parts.moviePlayer.getVideoData = () => ({
+      isLive: true,
+      video_id: 'abc123',
+    });
     env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
     env.advance(700);
     expect(attr(env, 'data-ytlite-live')).toBe('true');
@@ -186,7 +217,9 @@ describe('player.js: live-state publication (isolated world cannot call the play
     const { env, parts } = bootPlayer();
     let collapsedState = 'collapsed';
     parts.chatFrame = env.document.createElement('ytd-live-chat-frame');
-    parts.chatFrame.setCollapsedState = (v) => { collapsedState = v ? 'collapsed' : 'expanded'; };
+    parts.chatFrame.setCollapsedState = (v) => {
+      collapsedState = v ? 'collapsed' : 'expanded';
+    };
     env.document.body.appendChild(parts.chatFrame);
 
     env.window.dispatchEvent(new env.ctx.CustomEvent('ytlite-open-chat'));
@@ -195,6 +228,75 @@ describe('player.js: live-state publication (isolated world cannot call the play
 
   test('open-chat with no chat frame does not throw', () => {
     const { env } = bootPlayer();
-    expect(() => env.window.dispatchEvent(new env.ctx.CustomEvent('ytlite-open-chat'))).not.toThrow();
+    expect(() =>
+      env.window.dispatchEvent(new env.ctx.CustomEvent('ytlite-open-chat'))
+    ).not.toThrow();
+  });
+
+  test('publishes live state on cold Watch Page load without waiting for yt-navigate-finish', () => {
+    const { env, parts } = bootPlayer();
+    parts.moviePlayer.getVideoData = () => ({
+      isLive: true,
+      video_id: 'abc123',
+    });
+    env.advance(700);
+    expect(attr(env, 'data-ytlite-live')).toBe('true');
+    expect(attr(env, 'data-ytlite-video')).toBe('abc123');
+  });
+
+  test('yt-navigate-start cancels stale 600ms and 2000ms live timers from the previous video', () => {
+    const { env, parts } = bootPlayer();
+    parts.moviePlayer.getVideoData = () => ({
+      isLive: true,
+      video_id: 'live1',
+    });
+    env.navigate('https://www.youtube.com/watch?v=live1');
+    env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
+    env.advance(700);
+    expect(attr(env, 'data-ytlite-live')).toBe('true');
+
+    // Navigate to a non-live video before the 2000ms timer fires; also verify a
+    // fresh yt-navigate-finish + fast yt-navigate-start leaves no orphaned 600ms/2000ms timers.
+    env.navigate('https://www.youtube.com/watch?v=next1');
+    env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-start'));
+    env.advance(2500);
+    expect(attr(env, 'data-ytlite-live')).toBeNull();
+    expect(attr(env, 'data-ytlite-video')).toBeNull();
+
+    // Even if yt-navigate-finish armed new 600/2000ms timers, a subsequent
+    // yt-navigate-start before 600ms must cancel both timers.
+    env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
+    env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-start'));
+    env.advance(2500);
+    expect(attr(env, 'data-ytlite-live')).toBeNull();
+  });
+
+  test('skips live-state publishing outside Watch Pages even when a miniplayer remains mounted', () => {
+    const { env, parts } = bootPlayer();
+    parts.moviePlayer.getVideoData = () => ({
+      isLive: true,
+      video_id: 'abc123',
+    });
+    env.navigate('https://www.youtube.com/feed/subscriptions');
+    env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
+    env.advance(2500);
+    expect(attr(env, 'data-ytlite-live')).toBeNull();
+    expect(attr(env, 'data-ytlite-video')).toBeNull();
+  });
+
+  test('publishes replay flag on Stream Replay without setting data-ytlite-live', () => {
+    const { env, parts } = bootPlayer();
+    parts.moviePlayer.getVideoData = () => ({
+      isLive: false,
+      video_id: 'abc123',
+    });
+    parts.chatFrame = env.document.createElement('ytd-live-chat-frame');
+    parts.chatFrame.data = { liveChatRenderer: { isReplay: true } };
+    parts.secondaryInner.appendChild(parts.chatFrame);
+
+    env.advance(700);
+    expect(attr(env, 'data-ytlite-live')).toBeNull();
+    expect(attr(env, 'data-ytlite-video')).toBeNull();
+    expect(attr(env, 'data-ytlite-replay')).toBe('abc123');
   });
 });
