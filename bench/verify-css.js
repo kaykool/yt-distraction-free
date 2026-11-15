@@ -153,7 +153,16 @@ const CHECKS = [
     run: `(() => {
       const de = document.documentElement;
       const over = de.scrollWidth - de.clientWidth;
-      return { ok: over <= 2, detail: 'scrollWidth-clientWidth=' + over };
+      if (over <= 2) return { ok: true, detail: 'scrollWidth-clientWidth=' + over };
+      const offenders = [];
+      for (const n of document.querySelectorAll('*')) {
+        const r = n.getBoundingClientRect();
+        if (r.right > de.clientWidth + 1 || n.scrollWidth > de.clientWidth + 1) {
+          offenders.push(n.tagName.toLowerCase() + (n.id ? '#' + n.id : '') + '(r=' + Math.round(r.right) + ',sw=' + n.scrollWidth + ')');
+          if (offenders.length >= 4) break;
+        }
+      }
+      return { ok: false, detail: 'scrollWidth-clientWidth=' + over + (offenders.length ? ' via ' + offenders.join(' ') : '') };
     })()`,
   },
   {
@@ -366,14 +375,51 @@ const CHECKS = [
       if (origRange) mp.setPlaybackQualityRange = function(...args) { calls.push(['range', ...args]); return origRange.apply(this, args); };
       if (origSingle) mp.setPlaybackQuality = function(...args) { calls.push(['single', ...args]); return origSingle.apply(this, args); };
 
+      const bounded = (p, ms = 1500) =>
+        Promise.race([
+          Promise.resolve(p).catch(() => {}),
+          new Promise((r) => setTimeout(r, ms)),
+        ]);
+
       try {
         mp.mute?.();
         video.muted = true;
         mp.playVideo?.();
-        try { await video.play(); } catch (_) {}
-        const ready = await waitUntil(() => video.readyState >= 2 && !video.paused && !isVideoHidden(video), 4000);
+        if (video.readyState >= 2) {
+          await bounded(video.play(), 1500);
+        }
+        let lastKick = Date.now();
+        const ready = await waitUntil(() => {
+          if (video.paused || video.readyState < 2) {
+            const now = Date.now();
+            if (now - lastKick >= 800) {
+              lastKick = now;
+              mp.mute?.();
+              video.muted = true;
+              if (mp.classList?.contains('unstarted-mode')) {
+                mp.querySelector('.ytp-play-button')?.click();
+              }
+              mp.playVideo?.();
+              if (video.readyState >= 2 && video.paused) {
+                Promise.resolve(video.play()).catch(() => {});
+              }
+            }
+          }
+          return video.readyState >= 2 && !video.paused && !isVideoHidden(video);
+        }, 8000);
         if (!ready) {
-          return { ok: false, detail: 'video did not start visible playback: rs=' + video.readyState + ' paused=' + video.paused + ' hidden=' + isVideoHidden(video) };
+          return {
+            ok: false,
+            detail:
+              'video did not start visible playback: rs=' +
+              video.readyState +
+              ' paused=' +
+              video.paused +
+              ' hidden=' +
+              isVideoHidden(video) +
+              ' src=' +
+              Boolean(video.currentSrc),
+          };
         }
 
         const semanticBtn = btn.tagName === 'BUTTON' && btn.type === 'button' && btn.hasAttribute('aria-pressed');
@@ -463,7 +509,15 @@ async function main() {
     for (const check of CHECKS) {
       let res;
       try {
-        res = await page.evaluate(check.run);
+        res = await Promise.race([
+          page.evaluate(check.run),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error('check timed out after 30s')),
+              30000
+            )
+          ),
+        ]);
       } catch (err) {
         res = { ok: false, detail: 'evaluate failed: ' + err.message };
       }
