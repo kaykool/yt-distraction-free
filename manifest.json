@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YT Distraction Free",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Minimal YouTube: blocks ads/tracking, comments hidden until you click.",
   "icons": {
     "16": "icons/icon16.png",
@@ -22,20 +22,37 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://www.youtube.com/*", "*://youtube.com/*"],
-      "js": ["start.js"],
-      "css": ["hide.css"],
+      "matches": [
+        "*://www.youtube.com/*",
+        "*://youtube.com/*"
+      ],
+      "js": [
+        "start.js"
+      ],
+      "css": [
+        "hide.css"
+      ],
       "run_at": "document_start"
     },
     {
-      "matches": ["*://www.youtube.com/*", "*://youtube.com/*"],
-      "js": ["player.js"],
+      "matches": [
+        "*://www.youtube.com/*",
+        "*://youtube.com/*"
+      ],
+      "js": [
+        "player.js"
+      ],
       "world": "MAIN",
       "run_at": "document_start"
     },
     {
-      "matches": ["*://www.youtube.com/*", "*://youtube.com/*"],
-      "js": ["comments.js"],
+      "matches": [
+        "*://www.youtube.com/*",
+        "*://youtube.com/*"
+      ],
+      "js": [
+        "comments.js"
+      ],
       "run_at": "document_idle"
     }
   ],
@@ -48,6 +65,11 @@
       }
     ]
   },
-  "permissions": ["declarativeNetRequest"],
-  "host_permissions": ["*://www.youtube.com/*", "*://youtube.com/*"]
+  "permissions": [
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "*://www.youtube.com/*",
+    "*://youtube.com/*"
+  ]
 }
