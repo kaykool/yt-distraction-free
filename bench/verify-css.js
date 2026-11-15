@@ -17,16 +17,18 @@ import path from 'node:path';
 import { launchPage, waitForReady } from './browser.js';
 
 const EXT_DIR = path.resolve(import.meta.dir, '..');
-const URL = process.argv[2] || process.env.VERIFY_URL || 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+const URL =
+  process.argv[2] ||
+  process.env.VERIFY_URL ||
+  'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 const SETTLE_MS = Number(process.env.BENCH_SETTLE_MS || 9000);
 const PLAYER_MAX_W = 854;
 const PLAYER_MAX_H = 480;
 
-// Pages differ in which promises apply. A live stream intentionally suppresses the
-// comments reveal button, so button checks are only required on regular videos.
-// This is a page-state distinction, not a weaker assertion: on a regular video the
-// button is still mandatory.
-const NOT_LIVE = `!(document.documentElement.classList.contains('ytlite-live') || location.pathname.startsWith('/live'))`;
+// Pages differ in which promises apply. An active live stream intentionally suppresses the
+// comments reveal button, whereas a Stream Replay on /live/<id> has ytlite-live removed
+// and follows regular-video comment rules. Rely strictly on ytlite-live class presence.
+const NOT_LIVE = `!document.documentElement.classList.contains('ytlite-live')`;
 const HAS_OPEN_CHAT = `(() => {
   const cf = document.querySelector('ytd-live-chat-frame, #chat');
   if (cf) {
@@ -69,7 +71,7 @@ const CHECKS = [
         const active = document.documentElement.classList.contains('ytlite-sidebar-active');
         return { ok: active && d !== 'none', detail: 'live open chat: active=' + active + ' #secondary display=' + d };
       }
-      return { ok: d === 'none', detail: (isLive ? 'live without open chat' : 'regular video') + ': #secondary display=' + d };
+      return { ok: d === 'none', detail: (isLive ? 'live without open chat' : 'non-live video') + ': #secondary display=' + d };
     })()`,
   },
   {
@@ -252,7 +254,7 @@ const CHECKS = [
     name: 'interactive: Show chat opens collapsed chat',
     why: 'closing live chat must offer Show chat, and clicking Show chat must re-open the sidebar',
     run: `(async () => {
-      if (${NOT_LIVE}) return { ok: true, detail: 'regular video: Show chat not applicable (ok)' };
+      if (${NOT_LIVE}) return { ok: true, detail: 'non-live page: Show chat not applicable (ok)' };
       const html = document.documentElement;
       const sec = document.querySelector('#secondary');
       const cf = document.querySelector('ytd-live-chat-frame, #chat');
@@ -275,7 +277,7 @@ const CHECKS = [
       const isClosed = () => cf.hasAttribute('collapsed') || cf.hasAttribute('hidden') || cf.hasAttribute('hide-chat-frame');
       if (!isClosed()) {
         const hideBtn = document.querySelector('#show-hide-button button, [aria-label*="Hide chat"]');
-        if (!hideBtn) return { ok: true, detail: 'live chat open and not collapsible (ok)' };
+        if (!hideBtn) return { ok: false, detail: 'Hide chat button missing while live chat is open' };
         hideBtn.click();
         const collapsed = await waitUntil(() => !html.classList.contains('ytlite-sidebar-active') && getComputedStyle(sec).display === 'none' && document.querySelector('.ytlite-comments-btn')?.textContent === 'Show chat');
         if (!collapsed) return { ok: false, detail: 'chat did not collapse cleanly: sidebar=' + getComputedStyle(sec).display + ' btn=' + JSON.stringify(document.querySelector('.ytlite-comments-btn')?.textContent ?? null) };
@@ -293,15 +295,23 @@ const CHECKS = [
     })()`,
   },
   {
-    name: 'interactive: AudioOnly hides video, syncs quality, and restores',
-    why: 'AudioOnly must hide <video>, clamp quality to tiny, and restore prior state on toggle off',
+    name: 'interactive: AudioOnly hides video, syncs quality, plays/seeks stall-free, and restores',
+    why: 'AudioOnly must hide <video>, clamp quality to tiny, advance playback & scrub without stalling, and restore visibility/quality on toggle off',
     run: `(async () => {
       const html = document.documentElement;
       const btn = document.querySelector('.ytlite-video-toggle-btn');
       const video = document.querySelector('#movie_player video, .html5-video-player video');
       const mp = document.querySelector('#movie_player');
-      if (!btn || !video) return { ok: false, detail: 'toggle button or <video> missing' };
+      if (!btn || !video || !mp) return { ok: false, detail: 'toggle button, <video>, or #movie_player missing' };
 
+      const waitUntil = async (fn, ms = 2500) => {
+        const end = Date.now() + ms;
+        while (Date.now() < end) {
+          if (fn()) return true;
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        return fn();
+      };
       const isVideoHidden = (el = video) => {
         const vs = getComputedStyle(el);
         return vs.contentVisibility === 'hidden' || vs.visibility === 'hidden' || vs.display === 'none';
@@ -310,40 +320,87 @@ const CHECKS = [
         const vs = getComputedStyle(el);
         return vs.contentVisibility === 'hidden' && vs.visibility === 'hidden';
       };
-      // If headless YouTube stays in unstarted-mode and hides <video> itself, drive the
-      // '#movie_player video' selector with a visible probe <video> so the hide.css
-      // '!important' toggle + restore rule is still strictly tested.
-      let probe = null;
-      const target = !isVideoHidden(video)
-        ? video
-        : (() => {
-            probe = document.createElement('video');
-            probe.style.contentVisibility = 'visible';
-            probe.style.visibility = 'visible';
-            probe.style.display = 'block';
-            (mp || video.parentElement).appendChild(probe);
-            return probe;
-          })();
+      const waitAdvance = async (ms = 2500) => {
+        const settled = await waitUntil(
+          () => !video.paused && !video.seeking && video.readyState >= 2 && video.currentTime > 0.05,
+          3000,
+        );
+        if (!settled) return { ok: false, from: video.currentTime, to: video.currentTime };
+        await new Promise((r) => setTimeout(r, 200));
+        const t0 = video.currentTime;
+        const ok = await waitUntil(
+          () => !video.paused && !video.seeking && video.currentTime > t0 + 0.15,
+          ms,
+        );
+        return { ok, from: t0, to: video.currentTime };
+      };
+      const seekTo = async (targetTime) => {
+        await waitUntil(() => !video.seeking && video.readyState >= 2, 2000);
+        const settled = new Promise((resolve) => {
+          let done = false;
+          const finish = () => {
+            if (done) return;
+            done = true;
+            video.removeEventListener('seeked', finish);
+            resolve();
+          };
+          video.addEventListener('seeked', finish);
+          setTimeout(finish, 4000);
+        });
+        video.currentTime = targetTime;
+        await settled;
+        return video.currentTime;
+      };
+
       const initialBlock = localStorage.getItem('ytlite-block-video');
+      const initialPrev = localStorage.getItem('ytlite-prev-quality');
+      const initialBlockedCls = html.classList.contains('ytlite-video-blocked');
+      const origRange = typeof mp.setPlaybackQualityRange === 'function' ? mp.setPlaybackQualityRange : null;
+      const origSingle = typeof mp.setPlaybackQuality === 'function' ? mp.setPlaybackQuality : null;
+      const hasQualityApi = Boolean(origRange || origSingle);
+      if (!hasQualityApi) {
+        return { ok: false, detail: '#movie_player lacks quality API' };
+      }
+
       const calls = [];
-      const origRange = mp && typeof mp.setPlaybackQualityRange === 'function' ? mp.setPlaybackQualityRange : null;
-      const origSingle = mp && typeof mp.setPlaybackQuality === 'function' ? mp.setPlaybackQuality : null;
       if (origRange) mp.setPlaybackQualityRange = function(...args) { calls.push(['range', ...args]); return origRange.apply(this, args); };
       if (origSingle) mp.setPlaybackQuality = function(...args) { calls.push(['single', ...args]); return origSingle.apply(this, args); };
 
       try {
+        mp.mute?.();
+        video.muted = true;
+        mp.playVideo?.();
+        try { await video.play(); } catch (_) {}
+        const ready = await waitUntil(() => video.readyState >= 2 && !video.paused && !isVideoHidden(video), 4000);
+        if (!ready) {
+          return { ok: false, detail: 'video did not start visible playback: rs=' + video.readyState + ' paused=' + video.paused + ' hidden=' + isVideoHidden(video) };
+        }
+
         const semanticBtn = btn.tagName === 'BUTTON' && btn.type === 'button' && btn.hasAttribute('aria-pressed');
-        const visibleInitially = !isVideoHidden(target);
+        const visibleInitially = !isVideoHidden(video);
+
         btn.click();
         await new Promise((r) => setTimeout(r, 60));
         const onCalls = calls.slice();
         const blockedOn = html.classList.contains('ytlite-video-blocked');
         const pressedOn = btn.getAttribute('aria-pressed') === 'true' && btn.classList.contains('ytlite-ao');
         const lsOn = localStorage.getItem('ytlite-block-video') === 'true';
-        const hiddenOn = isVideoSuppressed(target);
+        const hiddenOn = isVideoSuppressed(video);
         const prevSaved = localStorage.getItem('ytlite-prev-quality');
-        const hasQualityApi = Boolean(mp && (origRange || origSingle));
-        const qualityTiny = !hasQualityApi || (onCalls.length === 1 && onCalls[0][1] === 'tiny');
+        const qualityTiny = onCalls.length === 1 && onCalls[0][1] === 'tiny';
+
+        await new Promise((r) => setTimeout(r, 350));
+        const advOn = await waitAdvance(2500);
+
+        const isLive = html.classList.contains('ytlite-live');
+        const seekTarget = isLive && advOn.to >= 15
+          ? Math.max(0, advOn.to - 10)
+          : Math.min(Number.isFinite(video.duration) && video.duration > 15 ? video.duration - 2 : advOn.to + 10, advOn.to + 10);
+        const seekLanded = await seekTo(seekTarget);
+        const seekNear = Math.abs(seekLanded - seekTarget) <= 5;
+        await new Promise((r) => setTimeout(r, 250));
+        const advAfterSeek = await waitAdvance(2500);
+        const stillSuppressed = isVideoSuppressed(video);
 
         btn.click();
         await new Promise((r) => setTimeout(r, 60));
@@ -351,22 +408,34 @@ const CHECKS = [
         const blockedOff = !html.classList.contains('ytlite-video-blocked');
         const pressedOff = btn.getAttribute('aria-pressed') === 'false' && !btn.classList.contains('ytlite-ao');
         const lsOff = localStorage.getItem('ytlite-block-video') === 'false';
-        const visibleAfter = !isVideoHidden(target);
+        const visibleAfter = !isVideoHidden(video);
         const prevCleared = localStorage.getItem('ytlite-prev-quality') === null;
-        const qualityRestored = !hasQualityApi || (prevSaved ? (offCalls.length === 1 && offCalls[0][1] === prevSaved) : offCalls.length === 0);
+        const qualityRestored = prevSaved ? (offCalls.length === 1 && offCalls[0][1] === prevSaved) : offCalls.length === 0;
+
+        await new Promise((r) => setTimeout(r, 350));
+        const advOff = await waitAdvance(2500);
 
         const ok = semanticBtn && visibleInitially && blockedOn && pressedOn && lsOn && hiddenOn && qualityTiny &&
-          blockedOff && pressedOff && lsOff && visibleAfter && prevCleared && qualityRestored;
+          advOn.ok && seekNear && advAfterSeek.ok && stillSuppressed &&
+          blockedOff && pressedOff && lsOff && visibleAfter && prevCleared && qualityRestored && advOff.ok;
         return {
           ok,
-          detail: 'hiddenOn=' + hiddenOn + ' visibleAfter=' + visibleAfter + ' tinyCalls=' + onCalls.length + ' prevSaved=' + prevSaved + ' restoreCalls=' + offCalls.length + ' restored=' + qualityRestored + (probe ? ' (probe)' : ''),
+          detail: 'hiddenOn=' + hiddenOn + ' tinyCalls=' + onCalls.length + ' prevSaved=' + prevSaved +
+            ' advOn=' + advOn.from.toFixed(2) + '->' + advOn.to.toFixed(2) +
+            ' seek=' + seekTarget.toFixed(1) + '@' + seekLanded.toFixed(1) + '->' + advAfterSeek.to.toFixed(2) +
+            ' visibleAfter=' + visibleAfter + ' restored=' + qualityRestored +
+            ' advOff=' + advOff.from.toFixed(2) + '->' + advOff.to.toFixed(2),
         };
       } finally {
-        if (probe) probe.remove();
         if (origRange) mp.setPlaybackQualityRange = origRange;
         if (origSingle) mp.setPlaybackQuality = origSingle;
+        html.classList.toggle('ytlite-video-blocked', initialBlockedCls);
         if (initialBlock === null) localStorage.removeItem('ytlite-block-video');
         else localStorage.setItem('ytlite-block-video', initialBlock);
+        if (initialPrev === null) localStorage.removeItem('ytlite-prev-quality');
+        else localStorage.setItem('ytlite-prev-quality', initialPrev);
+        mp.pauseVideo?.();
+        video.pause();
       }
     })()`,
   },
@@ -376,14 +445,18 @@ async function main() {
   console.log(`Behavioral CSS check against ${URL}\n`);
   const profileDir = '/tmp/ytlite-verify-css';
   fs.rmSync(profileDir, { recursive: true, force: true });
-  const page = await launchPage({ port: 9651, extensionDir: EXT_DIR, profileDir });
+  const page = await launchPage({
+    port: 9651,
+    extensionDir: EXT_DIR,
+    profileDir,
+  });
   let failures = 0;
   try {
     await page.goto(URL);
     await waitForReady(
       page.evaluate,
       "document.querySelector('ytd-watch-flexy, ytd-watch-grid') && document.querySelector('#below')",
-      SETTLE_MS,
+      SETTLE_MS
     );
     await Bun.sleep(1500);
 
@@ -400,11 +473,16 @@ async function main() {
       if (!res.ok) console.log(`        expected: ${check.why}`);
     }
 
-    console.log(`\n${failures === 0 ? 'OK: every CSS/layout promise holds.' : `FAIL: ${failures} broken promise(s).`}`);
+    console.log(
+      `\n${failures === 0 ? 'OK: every CSS/layout promise holds.' : `FAIL: ${failures} broken promise(s).`}`
+    );
     process.exitCode = failures === 0 ? 0 : 1;
   } finally {
     await page.close();
   }
 }
 
-main().catch((err) => { console.error(err); process.exit(1); });
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

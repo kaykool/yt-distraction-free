@@ -23,7 +23,7 @@
 
   // Live status supplied by YouTube's own lifecycle payloads. Authoritative and
   // free, so it is preferred over any DOM inspection.
-  let eventLiveSignal = null; // { videoId, isLive }
+  let eventLiveSignal = null; // { videoId, isLive, definitive }
 
   function videoIdFromUrl() {
     const match = location.search && location.search.match(/[?&]v=([^&#]+)/);
@@ -50,24 +50,37 @@
       replayFor &&
       (!currentVideoId || replayFor === 'true' || replayFor === currentVideoId)
     );
+    const matchingEvent =
+      eventLiveSignal && eventLiveSignal.videoId === currentVideoId
+        ? eventLiveSignal
+        : null;
 
-    // 1. Authoritative: YouTube told us via yt-navigate-finish / yt-page-data-updated.
+    // 1. Authoritative: YouTube told us via playerResponse or explicit isReplay.
     //    Checked before /live path checks and caches so Stream Replays on /live/<id>
     //    and late payloads always win over tentative heuristics.
-    if (eventLiveSignal && eventLiveSignal.videoId === currentVideoId) {
-      return cacheLive(currentVideoId, eventLiveSignal.isLive);
+    if (matchingEvent && matchingEvent.definitive) {
+      return cacheLive(currentVideoId, matchingEvent.isLive);
     }
 
-    // 2. Authoritative Stream Replay marker published by MAIN-world player.js.
-    //    Checked before /live path checks, cache, and DOM stamp cues so archived
-    //    replays never leak into Live Stream layout.
+    // 2. Stream Replay marker published by MAIN-world player.js.
+    //    Checked before unflagged conversationBar heuristics, /live path checks,
+    //    cache, and DOM stamp cues so archived replays never leak into Live Stream
+    //    layout. Stored non-definitive so an explicit data-ytlite-live="true"
+    //    published later for the same video is never permanently locked out.
     if (isPublishedReplay) {
-      return cacheLive(currentVideoId, false);
+      return cacheLive(currentVideoId, false, false);
+    }
+
+    // 3. Unflagged conversationBar heuristic (no playerResponse, no isReplay).
+    //    Yields positive only when Replay wasn't detected, and stays non-definitive
+    //    so late MAIN-world replay metadata can still override it.
+    if (matchingEvent) {
+      return cacheLive(currentVideoId, matchingEvent.isLive, false);
     }
 
     if (location.pathname.startsWith('/live')) return true;
 
-    // 3. A definitive answer for this video id is stable. Only *definitive* results
+    // 4. A definitive answer for this video id is stable. Only *definitive* results
     //    are trusted: an early probe on a not-yet-hydrated page can miss a live
     //    stream, so those indeterminate negatives must not be cached.
     if (
@@ -393,28 +406,20 @@
     sidebarUpdateTimers.push(setTimeout(() => syncWatchUi(), 600));
   }
 
-  function handlePanelLifecycleEvent(e) {
+  function syncPanelEvent(e, requireTarget) {
     if (!isWatchPage()) return;
     const target = e?.target;
     const panelOrChat =
       target && typeof target.closest === 'function'
         ? target.closest(PANEL_OR_CHAT_SELECTOR)
         : null;
+    if (requireTarget && !panelOrChat) return;
     if (panelOrChat) observePanelOrChatTransition(panelOrChat);
     scheduleSidebarUpdate();
   }
 
-  function handlePanelAction(e) {
-    if (!isWatchPage()) return;
-    const target = e?.target;
-    const panelOrChat =
-      target && typeof target.closest === 'function'
-        ? target.closest(PANEL_OR_CHAT_SELECTOR)
-        : null;
-    if (!panelOrChat) return;
-    observePanelOrChatTransition(panelOrChat);
-    scheduleSidebarUpdate();
-  }
+  const handlePanelLifecycleEvent = (e) => syncPanelEvent(e, false);
+  const handlePanelAction = (e) => syncPanelEvent(e, true);
 
   function getUrlFromEvent(e) {
     if (!e || !e.detail) return null;
@@ -1070,10 +1075,10 @@
     const vd = pr?.videoDetails;
 
     if (vd && typeof vd === 'object') {
-      if (vd.isLive === true) return { isLive: true, isReplay: false };
-      if (vd.isLiveContent === true) return { isLive: false, isReplay: true };
+      if (vd.isLive === true) return { isLive: true, definitive: true };
+      if (vd.isLiveContent === true) return { isLive: false, definitive: true };
       if ('isLive' in vd || Object.keys(vd).length > 0)
-        return { isLive: false, isReplay: false };
+        return { isLive: false, definitive: true };
     }
 
     if (chatRenderer && typeof chatRenderer === 'object') {
@@ -1081,12 +1086,32 @@
         chatRenderer.isReplay === true ||
         chatRenderer.liveChatRenderer?.isReplay === true
       ) {
-        return { isLive: false, isReplay: true };
+        return { isLive: false, definitive: true };
       }
-      return { isLive: true, isReplay: false };
+      return { isLive: true, definitive: false };
     }
 
     return null;
+  }
+
+  function applyEventLiveSignal(e) {
+    const signal = extractEventLiveSignal(e);
+    const videoId = videoIdFromUrl();
+    if (videoId && signal) {
+      const hasDefinitive =
+        eventLiveSignal &&
+        eventLiveSignal.videoId === videoId &&
+        eventLiveSignal.definitive;
+      if (signal.definitive || !hasDefinitive) {
+        eventLiveSignal = {
+          videoId,
+          isLive: signal.isLive,
+          definitive: signal.definitive,
+        };
+        cacheLive(videoId, signal.isLive, signal.definitive);
+      }
+    }
+    return signal;
   }
 
   function handleNavigateFinish(e) {
@@ -1094,17 +1119,7 @@
     clearSidebarTimers();
     disconnectPanelObserver();
     disconnectChatObserver();
-    const signal = extractEventLiveSignal(e);
-    const videoId = videoIdFromUrl();
-    if (videoId && signal) {
-      // Record the authoritative signal so isLiveVideo() never has to scan scripts.
-      eventLiveSignal = {
-        videoId,
-        isLive: signal.isLive,
-        isReplay: signal.isReplay,
-      };
-      cacheLive(videoId, signal.isLive, true);
-    }
+    const signal = applyEventLiveSignal(e);
 
     const watch = isWatchPage();
     if (!watch) {
@@ -1113,7 +1128,7 @@
       return;
     }
 
-    const isLive = signal ? signal.isLive : isLiveVideo();
+    const isLive = signal?.definitive ? signal.isLive : isLiveVideo();
     if (isLive) {
       document.documentElement.classList.add('ytlite-live');
       document.documentElement.classList.remove('ytlite-comments-hide');
@@ -1125,16 +1140,7 @@
   }
 
   function handleDataUpdated(e) {
-    const signal = extractEventLiveSignal(e);
-    const videoId = videoIdFromUrl();
-    if (videoId && signal) {
-      eventLiveSignal = {
-        videoId,
-        isLive: signal.isLive,
-        isReplay: signal.isReplay,
-      };
-      cacheLive(videoId, signal.isLive, true);
-    }
+    applyEventLiveSignal(e);
     const { watch } = syncWatchUi();
     if (!watch) return;
     placeVideoToggleButton(watch);

@@ -332,4 +332,58 @@ describe('player.js: live-state publication (isolated world cannot call the play
     expect(attr(env, 'data-ytlite-video')).toBeNull();
     expect(attr(env, 'data-ytlite-replay')).toBe('abc123');
   });
+
+  test('detectReplay ignores stale chatFrame.data.isReplay when ytd-watch-flexy lacks video-id during SPA transition', () => {
+    const { env, parts } = bootPlayer();
+    parts.chatFrame = env.document.createElement('ytd-live-chat-frame');
+    parts.chatFrame.data = { liveChatRenderer: { isReplay: true } };
+    parts.secondaryInner.appendChild(parts.chatFrame);
+
+    env.navigate('https://www.youtube.com/watch?v=nextLive');
+    env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-start'));
+    parts.root.removeAttribute('video-id');
+    parts.moviePlayer.getVideoData = () => ({
+      isLive: false,
+      video_id: 'nextLive',
+    });
+
+    env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
+    env.advance(700);
+    expect(attr(env, 'data-ytlite-replay')).toBeNull();
+  });
+
+  test('detectReplay uses flexyVd.videoId when video-id is absent and rejects stale flexyVd without videoId', () => {
+    const { env, parts } = bootPlayer();
+    env.navigate('https://www.youtube.com/watch?v=replayNext');
+    env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-start'));
+    parts.root.removeAttribute('video-id');
+    parts.moviePlayer.getVideoData = () => ({
+      isLive: false,
+      video_id: 'replayNext',
+    });
+
+    // Stale flexyVd lacking videoId must not match while video-id is missing.
+    parts.root.data = {
+      playerResponse: {
+        videoDetails: { isLiveContent: true, isLive: false },
+      },
+    };
+    env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
+    env.advance(700);
+    expect(attr(env, 'data-ytlite-replay')).toBeNull();
+
+    // Matching flexyVd.videoId identifies the replay even before video-id is stamped.
+    parts.root.data = {
+      playerResponse: {
+        videoDetails: {
+          videoId: 'replayNext',
+          isLiveContent: true,
+          isLive: false,
+        },
+      },
+    };
+    env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
+    env.advance(700);
+    expect(attr(env, 'data-ytlite-replay')).toBe('replayNext');
+  });
 });
