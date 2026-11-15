@@ -313,9 +313,10 @@ ytd-structured-description-content-renderer #footer-section {
   display: none !important;
 }
 
-/* Block video / Audio-only mode: stop video frame compositing */
+/* Block video / Audio-only mode: skip video layout/paint & frame compositing */
 html.ytlite-video-blocked #movie_player video,
 html.ytlite-video-blocked .html5-video-player video {
+  content-visibility: hidden !important;
   visibility: hidden !important;
 }
 
