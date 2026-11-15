@@ -2,20 +2,18 @@
 
 ## [0.5.2](https://github.com/kaykool/yt-distraction-free/compare/v0.5.1...v0.5.2) (2026-11-15)
 
-
 ### Bug Fixes
 
-* **bench:** wait for playback advance before AudioOnly toggle ([c066493](https://github.com/kaykool/yt-distraction-free/commit/c06649343fcfa1b0d7be98eb7de090bd6be3aa71))
-* bound verify-css video playback start and check evaluation ([e3392ea](https://github.com/kaykool/yt-distraction-free/commit/e3392eae2ddb6ab61fdd94f0923fa5c12eec4c98))
-* enforce authoritative live vs replay classification and cold-load sync ([7f63976](https://github.com/kaykool/yt-distraction-free/commit/7f639763184d416bd043760b1b6efd13478babc9))
-* harden live chat hydration, reveal placement, and Show chat lifecycle ([318a4ec](https://github.com/kaykool/yt-distraction-free/commit/318a4ec01045a0ca9490d74e7eb5ac368131d868))
-* harden replay detection precedence and live CSS verification ([15f1605](https://github.com/kaykool/yt-distraction-free/commit/15f16059c8ea56fb4d60fa66454b0f394d7b84c4))
-* single-shot Audio-Only quality sync and hidden-video suppression ([eaa7d1c](https://github.com/kaykool/yt-distraction-free/commit/eaa7d1c71a656a361fc50497d699af890d85b54e))
-
+- **bench:** wait for playback advance before AudioOnly toggle ([c066493](https://github.com/kaykool/yt-distraction-free/commit/c06649343fcfa1b0d7be98eb7de090bd6be3aa71))
+- bound verify-css video playback start and check evaluation ([e3392ea](https://github.com/kaykool/yt-distraction-free/commit/e3392eae2ddb6ab61fdd94f0923fa5c12eec4c98))
+- enforce authoritative live vs replay classification and cold-load sync ([7f63976](https://github.com/kaykool/yt-distraction-free/commit/7f639763184d416bd043760b1b6efd13478babc9))
+- harden live chat hydration, reveal placement, and Show chat lifecycle ([318a4ec](https://github.com/kaykool/yt-distraction-free/commit/318a4ec01045a0ca9490d74e7eb5ac368131d868))
+- harden replay detection precedence and live CSS verification ([15f1605](https://github.com/kaykool/yt-distraction-free/commit/15f16059c8ea56fb4d60fa66454b0f394d7b84c4))
+- single-shot Audio-Only quality sync and hidden-video suppression ([eaa7d1c](https://github.com/kaykool/yt-distraction-free/commit/eaa7d1c71a656a361fc50497d699af890d85b54e))
 
 ### Performance Improvements
 
-* make sidebar updates event-driven and scope observers ([1dde4d7](https://github.com/kaykool/yt-distraction-free/commit/1dde4d7dd1d1ce63d1c5b4f0ae989e11cb7c6062))
+- make sidebar updates event-driven and scope observers ([1dde4d7](https://github.com/kaykool/yt-distraction-free/commit/1dde4d7dd1d1ce63d1c5b4f0ae989e11cb7c6062))
 
 ## [0.5.1](https://github.com/kaykool/yt-distraction-free/compare/v0.5.0...v0.5.1) (2026-10-13)
 
