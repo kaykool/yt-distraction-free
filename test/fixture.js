@@ -13,20 +13,60 @@ function el(doc, tag, attrs = {}, text = '') {
   return n;
 }
 
+export function mountChat(doc, parts, { collapsed = false, disabled = false } = {}) {
+  const chatFrame = el(doc, 'ytd-live-chat-frame');
+  const chatIframe = el(doc, 'iframe', { id: 'chatframe' });
+  // Real YouTube hides chat by collapsing the frame element; #chatframe itself is
+  // left present and not hidden (verified against live youtube.com), so the shim
+  // must not set chatIframe.hidden here.
+  if (collapsed || disabled) {
+    chatFrame.setAttribute('collapsed', '');
+    chatFrame.setAttribute('hide-chat-frame', '');
+  }
+  // A chat-disabled stream renders an availability message inside the collapsed
+  // frame; a user-hidden chat does not (also verified against live youtube.com).
+  if (disabled) {
+    const msg = el(doc, 'ytd-message-renderer');
+    msg.appendChild(el(doc, 'yt-formatted-string', { id: 'message' }, 'Chat is disabled for this live stream.'));
+    chatFrame.appendChild(msg);
+  }
+  parts.secondaryInner.appendChild(chatFrame);
+  parts.secondaryInner.appendChild(chatIframe);
+  parts.chatFrame = chatFrame;
+  parts.chatIframe = chatIframe;
+  return { chatFrame, chatIframe };
+}
+
 export function buildWatchPage(doc, opts = {}) {
   const {
     isLive = false,
     panelsExpanded = false,
     liveChatClosed = false,
     chatDisabled = false,
+    unhydratedChat = false,
     adsPanel = false,
     videoId = 'abc123',
+    appShell = false,
     withCommentsExtras = true,
   } = opts;
 
   const root = el(doc, 'ytd-watch-flexy');
+  if (videoId) root.setAttribute('video-id', videoId);
   if (isLive) root.setAttribute('live', '');
   if (panelsExpanded) root.setAttribute('panels-expanded', '');
+
+  let app = null;
+  let content = null;
+  let pageManager = null;
+  if (appShell) {
+    app = el(doc, 'ytd-app');
+    content = el(doc, 'div', { id: 'content' });
+    pageManager = el(doc, 'ytd-page-manager', { id: 'page-manager' });
+    pageManager.appendChild(root);
+    content.appendChild(pageManager);
+    app.appendChild(content);
+  }
+  const mount = app || root;
 
   const columns = el(doc, 'div', { id: 'columns' });
   root.appendChild(columns);
@@ -70,24 +110,13 @@ export function buildWatchPage(doc, opts = {}) {
   secondaryInner.appendChild(related);
 
   // Real YouTube only mounts a live-chat frame for streams that actually have chat.
-  const chatFrame = isLive ? el(doc, 'ytd-live-chat-frame') : null;
-  const chatIframe = isLive ? el(doc, 'iframe', { id: 'chatframe' }) : null;
-  // Real YouTube hides chat by collapsing the frame element; #chatframe itself is
-  // left present and not hidden (verified against live youtube.com), so the shim
-  // must not set chatIframe.hidden here.
-  if ((liveChatClosed || chatDisabled) && chatFrame) {
-    chatFrame.setAttribute('collapsed', '');
-    chatFrame.setAttribute('hide-chat-frame', '');
+  let chatFrame = null;
+  let chatIframe = null;
+  if (isLive && !unhydratedChat) {
+    const mounted = mountChat(doc, { secondaryInner }, { collapsed: liveChatClosed, disabled: chatDisabled });
+    chatFrame = mounted.chatFrame;
+    chatIframe = mounted.chatIframe;
   }
-  // A chat-disabled stream renders an availability message inside the collapsed
-  // frame; a user-hidden chat does not (also verified against live youtube.com).
-  if (chatDisabled && chatFrame) {
-    const msg = el(doc, 'ytd-message-renderer');
-    msg.appendChild(el(doc, 'yt-formatted-string', { id: 'message' }, 'Chat is disabled for this live stream.'));
-    chatFrame.appendChild(msg);
-  }
-  if (chatFrame) secondaryInner.appendChild(chatFrame);
-  if (chatIframe) secondaryInner.appendChild(chatIframe);
   secondary.appendChild(secondaryInner);
   columns.appendChild(secondary);
 
@@ -115,6 +144,7 @@ export function buildWatchPage(doc, opts = {}) {
 
   const infoSection = el(doc, 'ytd-structured-description-content-renderer', { id: 'info-contents' });
   return {
+    app, content, pageManager, mount,
     root, columns, primary, primaryInner, below, metadata, secondary, secondaryInner,
     related, chatFrame, chatIframe, moviePlayer, rightControls, autonav, video, playerOuter,
     commentsSection, commentsHost, contBtn, commentsPanel, adsPanelEl, askPanel, infoSection,

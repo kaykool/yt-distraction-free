@@ -12,7 +12,7 @@
 // Usage: bun run verify:dom [url]
 import fs from 'node:fs';
 import path from 'node:path';
-import { launchPage } from './browser.js';
+import { launchPage, waitForReady } from './browser.js';
 
 const EXT_DIR = path.resolve(import.meta.dir, '..');
 const URL = process.argv[2] || process.env.VERIFY_URL || 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
@@ -32,7 +32,7 @@ const REQUIRED = [
   { name: 'player right controls', anyOf: ['.ytp-right-controls'] },
 ];
 
-function extractSelectors() {
+export function extractSelectors() {
   const css = fs.readFileSync(path.join(EXT_DIR, 'hide.css'), 'utf8');
   const js = ['comments.js', 'start.js', 'player.js']
     .map((f) => fs.readFileSync(path.join(EXT_DIR, f), 'utf8')).join('\n');
@@ -72,13 +72,11 @@ async function main() {
   const page = await launchPage({ port: 9641, extensionDir: EXT_DIR, profileDir: '/tmp/ytlite-verify' });
   try {
     await page.goto(URL);
-    await page.evaluate(`new Promise((resolve) => {
-      const ready = () => document.querySelector('ytd-watch-flexy, ytd-watch-grid') && document.querySelector('#below');
-      if (ready()) return resolve(true);
-      const obs = new MutationObserver(() => { if (ready()) { obs.disconnect(); resolve(true); } });
-      obs.observe(document.documentElement, { childList: true, subtree: true });
-      setTimeout(() => { obs.disconnect(); resolve(false); }, ${SETTLE_MS});
-    })`);
+    await waitForReady(
+      page.evaluate,
+      "document.querySelector('ytd-watch-flexy, ytd-watch-grid') && document.querySelector('#below')",
+      SETTLE_MS,
+    );
     await Bun.sleep(1500);
 
     const data = await page.evaluate(`(() => {
@@ -124,4 +122,6 @@ async function main() {
   }
 }
 
-main().catch((err) => { console.error(err); process.exit(1); });
+if (import.meta.main) {
+  main().catch((err) => { console.error(err); process.exit(1); });
+}

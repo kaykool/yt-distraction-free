@@ -136,6 +136,17 @@ describe('performance guardrails (AGENTS.md §3)', () => {
     expect(src.includes("observer.observe(target, { childList: true, subtree: false })")).toBe(true);
   });
 
+  test('never observes #primary-inner with subtree: true', () => {
+    const src = read('comments.js').replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(/#primary-inner[\s\S]{0,600}subtree:\s*true/.test(src)).toBe(false);
+    const fns = src.split(/(?=\bfunction\s+)/).filter((fn) => /subtree:\s*true/.test(fn));
+    for (const fn of fns) {
+      expect(fn.includes('#primary-inner')).toBe(false);
+      expect(/\bprimaryInner\b/.test(fn)).toBe(false);
+      expect(fn.includes('document.body')).toBe(false);
+    }
+  });
+
   test('blur/shadows are only ever set to none, never enabled', () => {
     const backdrop = [...css.matchAll(/backdrop-filter:\s*([^;]+);/g)].map((m) => m[1].trim());
     const shadows = [...css.matchAll(/box-shadow:\s*([^;]+);/g)].map((m) => m[1].trim());
@@ -144,6 +155,18 @@ describe('performance guardrails (AGENTS.md §3)', () => {
 
   test('ambient canvas and transitions are neutralized', () => {
     expect(css.includes('.ytp-ambient-canvas')).toBe(true);
+  });
+
+  test('extension .ytlite-* rules declare no active CSS transitions', () => {
+    const ytliteTransitions = [];
+    for (const block of css.split('}')) {
+      const [head, body] = block.split('{');
+      if (!head || !body || !head.includes('.ytlite-')) continue;
+      for (const m of body.matchAll(/\btransition(?:-duration|-property|-delay|-timing-function)?\s*:\s*([^;]+);/gi)) {
+        ytliteTransitions.push({ selector: head.trim(), value: m[1].trim() });
+      }
+    }
+    expect(ytliteTransitions.filter((t) => !/^none(?:\s+!important)?$/i.test(t.value))).toEqual([]);
   });
 
   test('the default suite stays browser-free', () => {
