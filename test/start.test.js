@@ -23,6 +23,7 @@ describe('start.js: pre-paint class application', () => {
     const cls = runStart('https://www.youtube.com/live/abc');
     expect(cls.contains('ytlite-live')).toBe(true);
     expect(cls.contains('ytlite-sidebar-active')).toBe(true);
+    expect(cls.contains('ytlite-comments-hide')).toBe(false);
   });
 
   test('non-watch pages get no classes', () => {

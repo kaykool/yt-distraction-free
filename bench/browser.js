@@ -39,7 +39,9 @@ export async function launchPage({ port, extensionDir = null, profileDir, window
 
   const evaluate = async (expression) => {
     const r = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
-    if (r.exceptionDetails) throw new Error(r.exceptionDetails.text || 'evaluate failed');
+    if (r.exceptionDetails) {
+      throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text || 'evaluate failed');
+    }
     return r.result.value;
   };
 
@@ -48,6 +50,43 @@ export async function launchPage({ port, extensionDir = null, profileDir, window
     async goto(url) { await send('Page.navigate', { url }); },
     async close() { cdp.close(); try { proc.kill(); } catch {} },
   };
+}
+
+// Waits until predicateExpr becomes truthy after navigation, avoiding the race
+// where document.documentElement is still null or an execution context resets.
+export async function waitForReady(evaluate, predicateExpr, timeoutMs = 9000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const remaining = Math.max(0, deadline - Date.now());
+    if (remaining === 0) {
+      try { return Boolean(await evaluate(`Boolean(${predicateExpr})`)); } catch { return false; }
+    }
+    try {
+      return await evaluate(`new Promise((resolve) => {
+        const deadline = Date.now() + ${remaining};
+        const ready = () => Boolean(${predicateExpr});
+        if (ready()) return resolve(true);
+        const attach = () => {
+          if (ready()) return resolve(true);
+          const left = deadline - Date.now();
+          if (left <= 0) return resolve(false);
+          if (!document.documentElement) {
+            return setTimeout(attach, 25);
+          }
+          const obs = new MutationObserver(() => {
+            if (ready()) { obs.disconnect(); resolve(true); }
+          });
+          obs.observe(document.documentElement, { childList: true, subtree: true });
+          setTimeout(() => { obs.disconnect(); resolve(ready()); }, left);
+        };
+        attach();
+      })`);
+    } catch (err) {
+      if (Date.now() >= deadline) throw err;
+      if (!/context|destroyed|navigation|target|frame|evaluate failed/i.test(String(err?.message || err))) throw err;
+      await Bun.sleep(50);
+    }
+  }
 }
 
 // Reads Blink's *layout tree* (distinct from DOM node count). display:none content

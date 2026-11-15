@@ -12,8 +12,9 @@
 // promises, so a failure means a promise is broken, not that the DOM moved.
 //
 // Usage: bun run verify:css [url]
+import fs from 'node:fs';
 import path from 'node:path';
-import { launchPage } from './browser.js';
+import { launchPage, waitForReady } from './browser.js';
 
 const EXT_DIR = path.resolve(import.meta.dir, '..');
 const URL = process.argv[2] || process.env.VERIFY_URL || 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
@@ -26,6 +27,16 @@ const PLAYER_MAX_H = 480;
 // This is a page-state distinction, not a weaker assertion: on a regular video the
 // button is still mandatory.
 const NOT_LIVE = `!(document.documentElement.classList.contains('ytlite-live') || location.pathname.startsWith('/live'))`;
+const HAS_OPEN_CHAT = `(() => {
+  const cf = document.querySelector('ytd-live-chat-frame, #chat');
+  if (cf) {
+    const closed = cf.hasAttribute('collapsed') || cf.hasAttribute('hidden') || cf.hasAttribute('hide-chat-frame');
+    const unavailable = Boolean(cf.querySelector('ytd-message-renderer'));
+    return !closed && !unavailable;
+  }
+  const iframe = document.getElementById('chatframe');
+  return Boolean(iframe && !iframe.hidden);
+})()`;
 
 const CHECKS = [
   {
@@ -46,13 +57,19 @@ const CHECKS = [
     })()`,
   },
   {
-    name: 'related sidebar hidden for normal videos',
-    why: 'AGENTS.md §4: #secondary hidden by default',
+    name: 'sidebar visibility matches page state',
+    why: 'AGENTS.md §4: #secondary hidden by default, revealed only for open live chat or active panel',
     run: `(() => {
       const el = document.querySelector('#secondary');
       if (!el) return { ok: false, detail: 'no #secondary' };
       const d = getComputedStyle(el).display;
-      return { ok: d === 'none', detail: '#secondary display=' + d };
+      const isLive = !(${NOT_LIVE});
+      const openChat = ${HAS_OPEN_CHAT};
+      if (isLive && openChat) {
+        const active = document.documentElement.classList.contains('ytlite-sidebar-active');
+        return { ok: active && d !== 'none', detail: 'live open chat: active=' + active + ' #secondary display=' + d };
+      }
+      return { ok: d === 'none', detail: (isLive ? 'live without open chat' : 'regular video') + ': #secondary display=' + d };
     })()`,
   },
   {
@@ -82,42 +99,50 @@ const CHECKS = [
   {
     name: 'player clamped to 854x480',
     why: 'AGENTS.md §4: player max-width 854px, max-height 480px',
-    // Assert the computed clamp itself. Measuring the rendered box is not enough:
-    // #primary already constrains width, so a removed clamp is invisible there.
+    // Assert the computed clamp itself on every container in the 6-element chain.
+    // Measuring the rendered box is not enough: #primary already constrains width.
     run: `(() => {
-      const el = document.querySelector('#player-container-outer, #player-container-inner, #player, #ytd-player, .html5-video-player');
-      if (!el) return { ok: false, detail: 'no player container' };
-      const s = getComputedStyle(el);
-      const mw = s.maxWidth, mh = s.maxHeight;
-      const okW = mw === '${PLAYER_MAX_W}px' || mw === 'none';
-      const okH = mh === '${PLAYER_MAX_H}px' || mh === 'none';
-      // At least one container in the chain must carry the clamp.
-      const chain = ['#player-container-outer', '#player-container-inner', '#ytd-player', '.html5-video-player']
-        .map((sel) => document.querySelector(sel))
-        .filter(Boolean)
-        .map((n) => getComputedStyle(n));
-      const hasW = chain.some((c) => c.maxWidth === '${PLAYER_MAX_W}px');
-      const hasH = chain.some((c) => c.maxHeight === '${PLAYER_MAX_H}px');
-      return { ok: hasW && hasH, detail: 'probe maxW=' + mw + ' maxH=' + mh + ' chainHasW=' + hasW + ' chainHasH=' + hasH };
+      const sels = ['#player-container-outer', '#player-container-inner', '#player', '#ytd-player', '#movie_player', '.html5-video-player'];
+      const present = sels
+        .map((sel) => [sel, document.querySelector(sel)])
+        .filter(([, n]) => Boolean(n))
+        .map(([sel, n]) => {
+          const s = getComputedStyle(n);
+          return { sel, maxW: s.maxWidth, maxH: s.maxHeight };
+        });
+      if (present.length === 0) return { ok: false, detail: 'no player containers found' };
+      const bad = present.filter((c) => c.maxW !== '${PLAYER_MAX_W}px' || c.maxH !== '${PLAYER_MAX_H}px');
+      const ok = bad.length === 0;
+      const detail = ok
+        ? 'checked=' + present.length + ' maxW=${PLAYER_MAX_W}px maxH=${PLAYER_MAX_H}px'
+        : 'unclamped: ' + bad.map((b) => b.sel + '(' + b.maxW + 'x' + b.maxH + ')').join(', ');
+      return { ok, detail };
     })()`,
   },
   {
     name: 'sidebar CSS reveals #secondary when active',
     why: 'AGENTS.md §4: sidebar revealed for live chat / engagement panels',
-    // verify:css defaults to a normal video where the sidebar must stay hidden, so
-    // the reveal rule is exercised by toggling the class the extension sets.
+    // Exercise both hidden and active states regardless of whether the page started active.
     run: `(() => {
       const html = document.documentElement;
       const el = document.querySelector('#secondary');
       if (!el) return { ok: false, detail: 'no #secondary' };
-      const before = getComputedStyle(el).display;
+      const watchEl = document.querySelector('ytd-watch-flexy, ytd-watch-grid');
       const hadClass = html.classList.contains('ytlite-sidebar-active');
+      const hadPanels = Boolean(watchEl && watchEl.hasAttribute('panels-expanded'));
+      if (hadPanels) watchEl.removeAttribute('panels-expanded');
+
+      html.classList.remove('ytlite-sidebar-active');
+      const hidden = getComputedStyle(el).display;
       html.classList.add('ytlite-sidebar-active');
-      const during = getComputedStyle(el).display;
-      if (!hadClass) html.classList.remove('ytlite-sidebar-active');
-      const after = getComputedStyle(el).display;
-      const ok = before === 'none' && during !== 'none' && after === 'none';
-      return { ok, detail: 'hidden=' + before + ' active=' + during + ' restored=' + after };
+      const active = getComputedStyle(el).display;
+
+      html.classList.toggle('ytlite-sidebar-active', hadClass);
+      if (hadPanels) watchEl.setAttribute('panels-expanded', '');
+      const restored = getComputedStyle(el).display;
+      const restoredOk = (hadClass || hadPanels) ? restored !== 'none' : restored === 'none';
+      const ok = hidden === 'none' && active !== 'none' && restoredOk;
+      return { ok, detail: 'hidden=' + hidden + ' active=' + active + ' restored=' + restored };
     })()`,
   },
   {
@@ -133,11 +158,17 @@ const CHECKS = [
     name: 'reveal button mounted',
     why: 'AGENTS.md §4: comments rendered on demand via .ytlite-comments-btn',
     run: `(() => {
-      if (${NOT_LIVE} === false) {
-        const suppressed = !document.querySelector('.ytlite-comments-btn');
-        return { ok: suppressed, detail: 'live page: button correctly suppressed=' + suppressed };
-      }
       const btn = document.querySelector('.ytlite-comments-btn');
+      if (${NOT_LIVE} === false) {
+        const cf = document.querySelector('ytd-live-chat-frame, #chat');
+        const unavailable = Boolean(cf && cf.querySelector('ytd-message-renderer'));
+        const closed = Boolean(cf && (cf.hasAttribute('collapsed') || cf.hasAttribute('hidden') || cf.hasAttribute('hide-chat-frame')));
+        if (closed && !unavailable) {
+          return { ok: Boolean(btn && btn.textContent === 'Show chat'), detail: 'live closed chat: label=' + JSON.stringify(btn?.textContent ?? null) };
+        }
+        const suppressed = !btn;
+        return { ok: suppressed, detail: 'live page: button suppressed=' + suppressed };
+      }
       if (!btn) return { ok: false, detail: 'no .ytlite-comments-btn' };
       return { ok: true, detail: 'label=' + JSON.stringify(btn.textContent) };
     })()`,
@@ -190,21 +221,163 @@ const CHECKS = [
       return { ok: bf === 'none', detail: 'backdrop-filter=' + bf };
     })()`,
   },
+  {
+    name: 'interactive: Show comments reveals comments',
+    why: 'clicking Show comments must unhide comments and remove the button',
+    run: `(async () => {
+      if (!(${NOT_LIVE})) return { ok: true, detail: 'live page: Show comments not applicable (ok)' };
+      const btn = document.querySelector('.ytlite-comments-btn');
+      const comments = document.querySelector('#comments, ytd-comments, ytd-item-section-renderer[section-identifier="comment-item-section"]');
+      if (!btn || !comments) return { ok: false, detail: 'button or comments missing' };
+      if (btn.textContent !== 'Show comments') return { ok: false, detail: 'unexpected label=' + JSON.stringify(btn.textContent) };
+      btn.click();
+      const end = Date.now() + 1500;
+      const done = () =>
+        !document.documentElement.classList.contains('ytlite-comments-hide') &&
+        !document.querySelector('.ytlite-button-container') &&
+        getComputedStyle(comments).display !== 'none';
+      while (!done() && Date.now() < end) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      const hiddenGone = !document.documentElement.classList.contains('ytlite-comments-hide');
+      const btnGone = !document.querySelector('.ytlite-button-container');
+      const d = getComputedStyle(comments).display;
+      return {
+        ok: hiddenGone && btnGone && d !== 'none',
+        detail: 'hiddenGone=' + hiddenGone + ' btnGone=' + btnGone + ' #comments display=' + d,
+      };
+    })()`,
+  },
+  {
+    name: 'interactive: Show chat opens collapsed chat',
+    why: 'closing live chat must offer Show chat, and clicking Show chat must re-open the sidebar',
+    run: `(async () => {
+      if (${NOT_LIVE}) return { ok: true, detail: 'regular video: Show chat not applicable (ok)' };
+      const html = document.documentElement;
+      const sec = document.querySelector('#secondary');
+      const cf = document.querySelector('ytd-live-chat-frame, #chat');
+      if (!sec) return { ok: false, detail: 'no #secondary' };
+      if (!cf) {
+        const suppressed = !document.querySelector('.ytlite-comments-btn');
+        return { ok: suppressed, detail: 'no chat frame on page; button suppressed=' + suppressed };
+      }
+      if (cf.querySelector('ytd-message-renderer')) {
+        return { ok: !document.querySelector('.ytlite-comments-btn'), detail: 'chat disabled on stream (ok)' };
+      }
+      const waitUntil = async (fn, ms = 2500) => {
+        const end = Date.now() + ms;
+        while (Date.now() < end) {
+          if (fn()) return true;
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        return fn();
+      };
+      const isClosed = () => cf.hasAttribute('collapsed') || cf.hasAttribute('hidden') || cf.hasAttribute('hide-chat-frame');
+      if (!isClosed()) {
+        const hideBtn = document.querySelector('#show-hide-button button, [aria-label*="Hide chat"]');
+        if (!hideBtn) return { ok: true, detail: 'live chat open and not collapsible (ok)' };
+        hideBtn.click();
+        const collapsed = await waitUntil(() => !html.classList.contains('ytlite-sidebar-active') && getComputedStyle(sec).display === 'none' && document.querySelector('.ytlite-comments-btn')?.textContent === 'Show chat');
+        if (!collapsed) return { ok: false, detail: 'chat did not collapse cleanly: sidebar=' + getComputedStyle(sec).display + ' btn=' + JSON.stringify(document.querySelector('.ytlite-comments-btn')?.textContent ?? null) };
+      }
+      const showBtn = document.querySelector('.ytlite-comments-btn');
+      if (!showBtn || showBtn.textContent !== 'Show chat') {
+        return { ok: false, detail: 'Show chat button missing when chat closed' };
+      }
+      showBtn.click();
+      const reopened = await waitUntil(() => html.classList.contains('ytlite-sidebar-active') && getComputedStyle(sec).display !== 'none' && !document.querySelector('.ytlite-comments-btn'));
+      return {
+        ok: reopened,
+        detail: 'reopened=' + reopened + ' sidebar=' + getComputedStyle(sec).display + ' btnAfter=' + Boolean(document.querySelector('.ytlite-comments-btn')),
+      };
+    })()`,
+  },
+  {
+    name: 'interactive: AudioOnly hides video, syncs quality, and restores',
+    why: 'AudioOnly must hide <video>, clamp quality to tiny, and restore prior state on toggle off',
+    run: `(async () => {
+      const html = document.documentElement;
+      const btn = document.querySelector('.ytlite-video-toggle-btn');
+      const video = document.querySelector('#movie_player video, .html5-video-player video');
+      const mp = document.querySelector('#movie_player');
+      if (!btn || !video) return { ok: false, detail: 'toggle button or <video> missing' };
+
+      const isVideoHidden = (el = video) => {
+        const vs = getComputedStyle(el);
+        return vs.visibility === 'hidden' || vs.display === 'none';
+      };
+      // If headless YouTube stays in unstarted-mode and hides <video> itself, drive the
+      // '#movie_player video' selector with a visible probe <video> so the hide.css
+      // '!important' toggle + restore rule is still strictly tested.
+      let probe = null;
+      const target = !isVideoHidden(video)
+        ? video
+        : (() => {
+            probe = document.createElement('video');
+            probe.style.visibility = 'visible';
+            probe.style.display = 'block';
+            (mp || video.parentElement).appendChild(probe);
+            return probe;
+          })();
+      const initialBlock = localStorage.getItem('ytlite-block-video');
+      const calls = [];
+      const origRange = mp && typeof mp.setPlaybackQualityRange === 'function' ? mp.setPlaybackQualityRange : null;
+      const origSingle = mp && typeof mp.setPlaybackQuality === 'function' ? mp.setPlaybackQuality : null;
+      if (origRange) mp.setPlaybackQualityRange = function(...args) { calls.push(['range', ...args]); return origRange.apply(this, args); };
+      if (origSingle) mp.setPlaybackQuality = function(...args) { calls.push(['single', ...args]); return origSingle.apply(this, args); };
+
+      try {
+        const visibleInitially = !isVideoHidden(target);
+        btn.click();
+        await new Promise((r) => setTimeout(r, 60));
+        const onCalls = calls.slice();
+        const blockedOn = html.classList.contains('ytlite-video-blocked');
+        const pressedOn = btn.getAttribute('aria-pressed') === 'true' && btn.classList.contains('ytlite-ao');
+        const lsOn = localStorage.getItem('ytlite-block-video') === 'true';
+        const hiddenOn = isVideoHidden(target);
+        const prevSaved = localStorage.getItem('ytlite-prev-quality');
+        const qualityTiny = !mp || (!origRange && !origSingle) || onCalls.some((c) => c[1] === 'tiny');
+
+        btn.click();
+        await new Promise((r) => setTimeout(r, 60));
+        const offCalls = calls.slice(onCalls.length);
+        const blockedOff = !html.classList.contains('ytlite-video-blocked');
+        const pressedOff = btn.getAttribute('aria-pressed') === 'false' && !btn.classList.contains('ytlite-ao');
+        const lsOff = localStorage.getItem('ytlite-block-video') === 'false';
+        const visibleAfter = !isVideoHidden(target);
+        const prevCleared = localStorage.getItem('ytlite-prev-quality') === null;
+        const qualityRestored = !prevSaved || offCalls.some((c) => c[1] === prevSaved);
+
+        const ok = visibleInitially && blockedOn && pressedOn && lsOn && hiddenOn && qualityTiny &&
+          blockedOff && pressedOff && lsOff && visibleAfter && prevCleared && qualityRestored;
+        return {
+          ok,
+          detail: 'hiddenOn=' + hiddenOn + ' visibleAfter=' + visibleAfter + ' tinyCalls=' + onCalls.length + ' prevSaved=' + prevSaved + ' restored=' + qualityRestored + (probe ? ' (probe)' : ''),
+        };
+      } finally {
+        if (probe) probe.remove();
+        if (origRange) mp.setPlaybackQualityRange = origRange;
+        if (origSingle) mp.setPlaybackQuality = origSingle;
+        if (initialBlock === null) localStorage.removeItem('ytlite-block-video');
+        else localStorage.setItem('ytlite-block-video', initialBlock);
+      }
+    })()`,
+  },
 ];
 
 async function main() {
   console.log(`Behavioral CSS check against ${URL}\n`);
-  const page = await launchPage({ port: 9651, extensionDir: EXT_DIR, profileDir: '/tmp/ytlite-verify-css' });
+  const profileDir = '/tmp/ytlite-verify-css';
+  fs.rmSync(profileDir, { recursive: true, force: true });
+  const page = await launchPage({ port: 9651, extensionDir: EXT_DIR, profileDir });
   let failures = 0;
   try {
     await page.goto(URL);
-    await page.evaluate(`new Promise((resolve) => {
-      const ready = () => document.querySelector('ytd-watch-flexy, ytd-watch-grid') && document.querySelector('#below');
-      if (ready()) return resolve(true);
-      const obs = new MutationObserver(() => { if (ready()) { obs.disconnect(); resolve(true); } });
-      obs.observe(document.documentElement, { childList: true, subtree: true });
-      setTimeout(() => { obs.disconnect(); resolve(false); }, ${SETTLE_MS});
-    })`);
+    await waitForReady(
+      page.evaluate,
+      "document.querySelector('ytd-watch-flexy, ytd-watch-grid') && document.querySelector('#below')",
+      SETTLE_MS,
+    );
     await Bun.sleep(1500);
 
     for (const check of CHECKS) {
