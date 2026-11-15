@@ -526,3 +526,96 @@ describe('live detection: transition-safe DOM cues and current YouTube watch con
     expect(cls(e3).contains('ytlite-live')).toBe(true);
   });
 });
+
+describe('live chat hydration lifecycle', () => {
+  test('unhydrated chat on /live preserves hydration timers and opens Sidebar when open chat mounts', () => {
+    const { env, doc, main, parts, advance } = bootDualWorld({
+      href: 'https://www.youtube.com/live/hydrateOpen',
+      fixture: { isLive: true, unhydratedChat: true },
+    });
+
+    // Sidebar is not kept blank before chat exists; comments stay unhidden on /live.
+    expect(cls(env).contains('ytlite-live')).toBe(true);
+    expect(cls(env).contains('ytlite-comments-hide')).toBe(false);
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
+
+    // Unrelated panel lifecycle update before chat mounts must not cancel 1200ms/3000ms hydration timers.
+    dispatch(env, doc, 'yt-engagement-panel-visibility-changed', {});
+    advance(1500);
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
+
+    // Chat hydrates late at ~2s; the 3000ms hydration timer recovers Sidebar without manual events.
+    mountChat(main.document, parts, { collapsed: false });
+    advance(1600);
+
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(true);
+    expect(cls(env).contains('ytlite-comments-hide')).toBe(false);
+    expect(doc.querySelector('.ytlite-comments-btn')).toBeNull();
+  });
+
+  test('async chat-disabled message hydrating after open chat init collapses Sidebar cleanly', () => {
+    const { env, doc, main, parts, advance } = bootDualWorld({
+      href: 'https://www.youtube.com/live/disabledAsync',
+      fixture: { isLive: true },
+    });
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(true);
+
+    // Simulate async hydration of "Chat is disabled for this live stream." without a collapsed event.
+    advance(100);
+    const msg = main.document.createElement('ytd-message-renderer');
+    const txt = main.document.createElement('yt-formatted-string');
+    txt.id = 'message';
+    txt.textContent = 'Chat is disabled for this live stream.';
+    msg.appendChild(txt);
+    parts.chatFrame.appendChild(msg);
+    advance(300);
+
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
+    expect(doc.querySelector('.ytlite-comments-btn')).toBeNull();
+  });
+
+  test('unhydrated chat mounting collapsed renders Show chat without leaving Sidebar open', () => {
+    const { env, doc, main, parts, advance } = bootDualWorld({
+      href: 'https://www.youtube.com/watch?v=hydrateClosed',
+      fixture: { isLive: true, unhydratedChat: true },
+    });
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
+    expect(doc.querySelector('.ytlite-comments-btn')).toBeNull();
+
+    mountChat(main.document, parts, { collapsed: true });
+    advance(350);
+
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(false);
+    expect(doc.querySelector('.ytlite-comments-btn')?.textContent).toBe(
+      'Show chat'
+    );
+  });
+
+  test('chatObserver watches #secondary-inner when live chat is unhydrated and disconnects on mount or timeout', () => {
+    const { env, parts } = boot({
+      href: 'https://www.youtube.com/live/obsHydrate',
+      fixture: { isLive: true, unhydratedChat: true },
+    });
+
+    const active = env.observers().filter((o) => o.active);
+    expect(active.length).toBe(1);
+    expect(active[0].observations[0].target).toBe(parts.secondaryInner);
+    expect(active[0].observations[0].options.subtree).toBe(false);
+
+    mountChat(env.document, parts, { collapsed: false });
+    active[0].trigger();
+
+    expect(cls(env).contains('ytlite-sidebar-active')).toBe(true);
+    expect(env.observers().filter((o) => o.active).length).toBe(0);
+
+    // Live stream without any chat disconnects safely after timeout.
+    const noChat = boot({
+      href: 'https://www.youtube.com/live/noChatStream',
+      fixture: { isLive: true, unhydratedChat: true },
+    });
+    expect(noChat.env.observers().filter((o) => o.active).length).toBe(1);
+    noChat.env.advance(4500);
+    expect(noChat.env.observers().filter((o) => o.active).length).toBe(0);
+    expect(cls(noChat.env).contains('ytlite-sidebar-active')).toBe(false);
+  });
+});

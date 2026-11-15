@@ -63,27 +63,51 @@ describe('dom.js: attribute/property sync and selector engine', () => {
     wf.setAttribute('fullscreen', '');
     expect(matchesSelector(wf, sel)).toBe(false);
 
-    const panel = doc.createElement('ytd-engagement-panel-section-list-renderer');
+    const panel = doc.createElement(
+      'ytd-engagement-panel-section-list-renderer'
+    );
     panel.setAttribute('target-id', 'engagement-panel-comments-section');
-    expect(matchesSelector(panel, 'ytd-engagement-panel-section-list-renderer:not([target-id*="ad"]):not([hidden])')).toBe(true);
+    expect(
+      matchesSelector(
+        panel,
+        'ytd-engagement-panel-section-list-renderer:not([target-id*="ad"]):not([hidden])'
+      )
+    ).toBe(true);
     panel.setAttribute('target-id', 'engagement-panel-ads');
-    expect(matchesSelector(panel, 'ytd-engagement-panel-section-list-renderer:not([target-id*="ad"]):not([hidden])')).toBe(false);
+    expect(
+      matchesSelector(
+        panel,
+        'ytd-engagement-panel-section-list-renderer:not([target-id*="ad"]):not([hidden])'
+      )
+    ).toBe(false);
   });
 
   test('evaluates >, +, ~, descendant combinators, backtracking, and quoted spaces', () => {
     const doc = new Document();
     const sec = doc.createElement('div');
     sec.id = 'secondary';
-    const directRelated = doc.createElement('ytd-watch-next-secondary-results-renderer');
+    const directRelated = doc.createElement(
+      'ytd-watch-next-secondary-results-renderer'
+    );
     const inner = doc.createElement('div');
-    const nestedRelated = doc.createElement('ytd-watch-next-secondary-results-renderer');
+    const nestedRelated = doc.createElement(
+      'ytd-watch-next-secondary-results-renderer'
+    );
     sec.appendChild(directRelated);
     inner.appendChild(nestedRelated);
     sec.appendChild(inner);
     doc.body.appendChild(sec);
 
-    expect(doc.querySelectorAll('#secondary > ytd-watch-next-secondary-results-renderer')).toEqual([directRelated]);
-    expect(doc.querySelectorAll('#secondary>ytd-watch-next-secondary-results-renderer')).toEqual([directRelated]);
+    expect(
+      doc.querySelectorAll(
+        '#secondary > ytd-watch-next-secondary-results-renderer'
+      )
+    ).toEqual([directRelated]);
+    expect(
+      doc.querySelectorAll(
+        '#secondary>ytd-watch-next-secondary-results-renderer'
+      )
+    ).toEqual([directRelated]);
 
     // + and ~ combinators
     const a = doc.createElement('span');
@@ -127,7 +151,9 @@ describe('dom.js: attribute/property sync and selector engine', () => {
     btn.className = 'ytlite-comments-btn';
     btn.setAttribute('aria-label', 'Show chat');
     doc.body.appendChild(btn);
-    expect(doc.querySelectorAll('button[aria-label="Show chat"]')).toEqual([btn]);
+    expect(doc.querySelectorAll('button[aria-label="Show chat"]')).toEqual([
+      btn,
+    ]);
     expect(doc.querySelectorAll('.ytlite-comments-btn:hover')).toEqual([]);
   });
 });
@@ -178,28 +204,59 @@ describe('helpers.js: dual-world execution & realistic SPA payloads', () => {
     const { env, isolated, main, parts } = bootDualWorld();
 
     // Page-world expando on moviePlayer and chatFrame is visible in MAIN, undefined in ISOLATED.
-    parts.moviePlayer.getVideoData = () => ({ isLive: false, video_id: 'abc123' });
-    expect(typeof main.document.getElementById('movie_player').getVideoData).toBe('function');
-    expect(isolated.document.getElementById('movie_player').getVideoData).toBeUndefined();
+    parts.moviePlayer.getVideoData = () => ({
+      isLive: false,
+      video_id: 'abc123',
+    });
+    expect(
+      typeof main.document.getElementById('movie_player').getVideoData
+    ).toBe('function');
+    expect(
+      isolated.document.getElementById('movie_player').getVideoData
+    ).toBeUndefined();
 
     // Isolated-world expando does not leak to MAIN.
     isolated.document.getElementById('movie_player').__isoOnly = 'secret';
-    expect(main.document.getElementById('movie_player').__isoOnly).toBeUndefined();
+    expect(
+      main.document.getElementById('movie_player').__isoOnly
+    ).toBeUndefined();
 
     // Cross-world CustomEvent strips detail to null in both directions.
     let mainWinDetail = 'unset';
     let isoWinDetail = 'unset';
     let mainDocDetail = 'unset';
     let isoDocDetail = 'unset';
-    main.window.addEventListener('test-i2m', (e) => { mainWinDetail = e.detail; });
-    isolated.window.addEventListener('test-m2i', (e) => { isoWinDetail = e.detail; });
-    main.document.addEventListener('test-doc-i2m', (e) => { mainDocDetail = e.detail; });
-    isolated.document.addEventListener('test-doc-m2i', (e) => { isoDocDetail = e.detail; });
+    main.window.addEventListener('test-i2m', (e) => {
+      mainWinDetail = e.detail;
+    });
+    isolated.window.addEventListener('test-m2i', (e) => {
+      isoWinDetail = e.detail;
+    });
+    main.document.addEventListener('test-doc-i2m', (e) => {
+      mainDocDetail = e.detail;
+    });
+    isolated.document.addEventListener('test-doc-m2i', (e) => {
+      isoDocDetail = e.detail;
+    });
 
-    isolated.window.dispatchEvent(new isolated.ctx.CustomEvent('test-i2m', { detail: { a: 1 } }));
-    main.window.dispatchEvent(new main.ctx.CustomEvent('test-m2i', { detail: { b: 2 } }));
-    isolated.document.dispatchEvent(new isolated.ctx.CustomEvent('test-doc-i2m', { bubbles: true, detail: { c: 3 } }));
-    main.document.dispatchEvent(new main.ctx.CustomEvent('test-doc-m2i', { bubbles: true, detail: { d: 4 } }));
+    isolated.window.dispatchEvent(
+      new isolated.ctx.CustomEvent('test-i2m', { detail: { a: 1 } })
+    );
+    main.window.dispatchEvent(
+      new main.ctx.CustomEvent('test-m2i', { detail: { b: 2 } })
+    );
+    isolated.document.dispatchEvent(
+      new isolated.ctx.CustomEvent('test-doc-i2m', {
+        bubbles: true,
+        detail: { c: 3 },
+      })
+    );
+    main.document.dispatchEvent(
+      new main.ctx.CustomEvent('test-doc-m2i', {
+        bubbles: true,
+        detail: { d: 4 },
+      })
+    );
 
     expect(mainWinDetail).toBeNull();
     expect(isoWinDetail).toBeNull();
@@ -215,46 +272,172 @@ describe('helpers.js: dual-world execution & realistic SPA payloads', () => {
     });
     parts.moviePlayer.getPlaybackQuality = () => 'hd1080';
     let chatState = 'collapsed';
-    parts.chatFrame.setCollapsedState = (c) => { chatState = c ? 'collapsed' : 'open'; };
+    parts.chatFrame.setCollapsedState = (c) => {
+      chatState = c ? 'collapsed' : 'open';
+    };
 
     // Toggle AudioOnly on and off via the ISOLATED button -> MAIN player.js clamps & restores.
     const toggle = doc.querySelector('.ytlite-video-toggle-btn');
     expect(toggle).not.toBeNull();
     expect(toggle.tagName).toBe('BUTTON');
     expect(toggle.type).toBe('button');
+    expect(toggle.textContent).toBe('AudioOnly');
+    expect(toggle.getAttribute('aria-label')).toBe('AudioOnly');
     expect(toggle.getAttribute('aria-pressed')).toBe('false');
 
     toggle.click();
     env.advance(10);
     expect(env.localStorage.getItem('ytlite-block-video')).toBe('true');
     expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    expect(toggle.getAttribute('aria-label')).toBe('AudioOnly');
     expect(qualityCalls).toEqual([['range', 'tiny', 'tiny']]);
 
     toggle.click();
     env.advance(10);
     expect(env.localStorage.getItem('ytlite-block-video')).toBe('false');
     expect(toggle.getAttribute('aria-pressed')).toBe('false');
-    expect(qualityCalls).toEqual([['range', 'tiny', 'tiny'], ['range', 'hd1080', 'hd1080']]);
+    expect(toggle.getAttribute('aria-label')).toBe('AudioOnly');
+    expect(qualityCalls).toEqual([
+      ['range', 'tiny', 'tiny'],
+      ['range', 'hd1080', 'hd1080'],
+    ]);
 
     // Show chat button in ISOLATED triggers ytlite-open-chat -> MAIN invokes setCollapsedState(false).
     const showChat = doc.querySelector('.ytlite-comments-btn');
     expect(showChat.textContent).toBe('Show chat');
+    expect(showChat.getAttribute('aria-expanded')).toBe('false');
     showChat.click();
     expect(chatState).toBe('open');
+  });
+
+  test('Show chat invokes MAIN API without double-toggling UI buttons or flipping Hide chat', () => {
+    const { env, doc, main, parts, advance } = bootDualWorld({
+      href: 'https://www.youtube.com/watch?v=liveToggle1',
+      fixture: { isLive: true, liveChatClosed: true },
+    });
+
+    // Mount YouTube's internal Show/Hide button and teaser button inside DOM.
+    const showHideWrap = main.document.createElement('div');
+    showHideWrap.id = 'show-hide-button';
+    const ytShowBtn = main.document.createElement('button');
+    ytShowBtn.setAttribute('aria-label', 'Show chat');
+    let ytShowClicks = 0;
+    ytShowBtn.addEventListener('click', () => {
+      ytShowClicks++;
+      if (parts.chatFrame.hasAttribute('collapsed')) {
+        parts.chatFrame.removeAttribute('collapsed');
+      } else {
+        parts.chatFrame.setAttribute('collapsed', '');
+      }
+    });
+    showHideWrap.appendChild(ytShowBtn);
+    parts.chatFrame.appendChild(showHideWrap);
+
+    const teaser = main.document.createElement('div');
+    teaser.id = 'teaser-carousel';
+    const teaserBtn = main.document.createElement('button');
+    let teaserClicks = 0;
+    teaserBtn.addEventListener('click', () => {
+      teaserClicks++;
+    });
+    teaser.appendChild(teaserBtn);
+    parts.below.appendChild(teaser);
+
+    let onShowHideCalls = 0;
+    let sawCollapsedWhenCalled = false;
+    parts.chatFrame.onShowHideChat = () => {
+      onShowHideCalls++;
+      sawCollapsedWhenCalled = parts.chatFrame.hasAttribute('collapsed');
+      parts.chatFrame.removeAttribute('collapsed');
+      parts.chatFrame.removeAttribute('hide-chat-frame');
+      ytShowBtn.setAttribute('aria-label', 'Hide chat');
+    };
+
+    const btn = doc.querySelector('.ytlite-comments-btn');
+    expect(btn?.textContent).toBe('Show chat');
+    btn.click();
+
+    expect(onShowHideCalls).toBe(1);
+    expect(sawCollapsedWhenCalled).toBe(true);
+    expect(ytShowClicks).toBe(0);
+    expect(teaserClicks).toBe(0);
+    expect(parts.chatFrame.hasAttribute('collapsed')).toBe(false);
+    expect(
+      doc.documentElement.classList.contains('ytlite-sidebar-active')
+    ).toBe(true);
+    expect(doc.querySelector('.ytlite-button-container')).toBeNull();
+
+    // Coalesced YouTube events right after opening must keep sidebar open.
+    env.document.dispatchEvent(
+      new env.ctx.CustomEvent('yt-action', { bubbles: true })
+    );
+    env.document.dispatchEvent(
+      new env.ctx.CustomEvent('yt-chat-collapsed-changed')
+    );
+    advance(700);
+    expect(
+      doc.documentElement.classList.contains('ytlite-sidebar-active')
+    ).toBe(true);
+  });
+
+  test('openLiveChat UI fallback clicks only one Show button when MAIN API is absent and skips Hide buttons', () => {
+    const { env, doc, main, parts, advance } = bootDualWorld({
+      href: 'https://www.youtube.com/watch?v=liveFallback',
+      fixture: { isLive: true, liveChatClosed: true },
+    });
+
+    const showHideWrap = main.document.createElement('div');
+    showHideWrap.id = 'show-hide-button';
+    const ytHideBtn = main.document.createElement('button');
+    ytHideBtn.setAttribute('aria-label', 'Hide chat');
+    let hideClicks = 0;
+    ytHideBtn.addEventListener('click', () => {
+      hideClicks++;
+    });
+    showHideWrap.appendChild(ytHideBtn);
+    parts.chatFrame.appendChild(showHideWrap);
+
+    const teaser = main.document.createElement('div');
+    teaser.id = 'teaser-carousel';
+    const teaserBtn = main.document.createElement('button');
+    let teaserClicks = 0;
+    teaserBtn.addEventListener('click', () => {
+      teaserClicks++;
+      parts.chatFrame.removeAttribute('collapsed');
+      parts.chatFrame.removeAttribute('hide-chat-frame');
+    });
+    teaser.appendChild(teaserBtn);
+    parts.below.appendChild(teaser);
+
+    const btn = doc.querySelector('.ytlite-comments-btn');
+    expect(btn?.textContent).toBe('Show chat');
+    btn.click();
+    advance(700);
+
+    expect(hideClicks).toBe(0);
+    expect(teaserClicks).toBe(1);
+    expect(
+      doc.documentElement.classList.contains('ytlite-sidebar-active')
+    ).toBe(true);
   });
 
   test('MAIN player.js publishes data-ytlite-live on yt-navigate-finish for ISOLATED comments.js', () => {
     const { env, doc, parts } = bootDualWorld({
       href: 'https://www.youtube.com/watch?v=stream99',
     });
-    parts.moviePlayer.getVideoData = () => ({ isLive: true, video_id: 'stream99' });
+    parts.moviePlayer.getVideoData = () => ({
+      isLive: true,
+      video_id: 'stream99',
+    });
 
     // No event playerResponse; MAIN publishes data-ytlite-live after debounce.
     dispatch(env, env.document, 'yt-navigate-finish', {});
     env.advance(700);
 
     expect(doc.documentElement.getAttribute('data-ytlite-live')).toBe('true');
-    expect(doc.documentElement.getAttribute('data-ytlite-video')).toBe('stream99');
+    expect(doc.documentElement.getAttribute('data-ytlite-video')).toBe(
+      'stream99'
+    );
 
     populateComments(doc, parts, 2);
     expect(doc.querySelectorAll('ytd-comment-thread-renderer').length).toBe(2);
@@ -262,16 +445,23 @@ describe('helpers.js: dual-world execution & realistic SPA payloads', () => {
 
   test('builds realistic nested SPA navigation and minimal page-data payloads', () => {
     expect(spaNavigateStart('/watch?v=next1')).toEqual({
-      endpoint: { commandMetadata: { webCommandMetadata: { url: '/watch?v=next1' } } },
+      endpoint: {
+        commandMetadata: { webCommandMetadata: { url: '/watch?v=next1' } },
+      },
     });
 
     const regularFinish = spaNavigateFinish();
     expect(regularFinish.response.contents).toBeUndefined();
     expect(regularFinish.playerResponse).toBeUndefined();
-    expect(regularFinish.response.response.contents.twoColumnWatchNextResults).toEqual({});
+    expect(
+      regularFinish.response.response.contents.twoColumnWatchNextResults
+    ).toEqual({});
 
     const liveFinish = spaNavigateFinish({ hasLiveChat: true });
-    expect(liveFinish.response.response.contents.twoColumnWatchNextResults.conversationBar.liveChatRenderer).toEqual({});
+    expect(
+      liveFinish.response.response.contents.twoColumnWatchNextResults
+        .conversationBar.liveChatRenderer
+    ).toEqual({});
 
     expect(spaPageDataUpdated()).toEqual({ pageType: 'watch' });
   });
@@ -306,7 +496,12 @@ describe('helpers.js: dual-world execution & realistic SPA payloads', () => {
     expect(qualityCalls).toEqual([['range', 'tiny', 'tiny']]);
 
     qualityCalls.length = 0;
-    dispatch(env, env.document, 'yt-navigate-start', spaNavigateStart('/watch?v=vid2'));
+    dispatch(
+      env,
+      env.document,
+      'yt-navigate-start',
+      spaNavigateStart('/watch?v=vid2')
+    );
     navigate('https://www.youtube.com/watch?v=vid2');
     dispatch(env, env.document, 'yt-navigate-finish', spaNavigateFinish());
     advance(700);
@@ -315,10 +510,18 @@ describe('helpers.js: dual-world execution & realistic SPA payloads', () => {
 
     // Toggle AudioOnly off, then navigate again: no quality calls during SPA nav.
     doc.querySelector('.ytlite-video-toggle-btn').click();
-    expect(qualityCalls).toEqual([['range', 'tiny', 'tiny'], ['range', 'hd720', 'hd720']]);
+    expect(qualityCalls).toEqual([
+      ['range', 'tiny', 'tiny'],
+      ['range', 'hd720', 'hd720'],
+    ]);
 
     qualityCalls.length = 0;
-    dispatch(env, env.document, 'yt-navigate-start', spaNavigateStart('/watch?v=vid3'));
+    dispatch(
+      env,
+      env.document,
+      'yt-navigate-start',
+      spaNavigateStart('/watch?v=vid3')
+    );
     navigate('https://www.youtube.com/watch?v=vid3');
     dispatch(env, env.document, 'yt-navigate-finish', spaNavigateFinish());
     advance(700);
@@ -330,11 +533,17 @@ describe('helpers.js: dual-world execution & realistic SPA payloads', () => {
     const { doc, isolated } = bootDualWorld({
       href: 'https://www.youtube.com/watch?v=vid1',
       mutate: ({ isolated: iso }) => {
-        iso.window.addEventListener('ytlite-set-quality', (e) => details.push(e.detail));
+        iso.window.addEventListener('ytlite-set-quality', (e) =>
+          details.push(e.detail)
+        );
       },
     });
     doc.querySelector('.ytlite-video-toggle-btn').click();
     expect(details).toEqual([null, null]);
-    expect(isolated.document.documentElement.classList.contains('ytlite-video-blocked')).toBe(true);
+    expect(
+      isolated.document.documentElement.classList.contains(
+        'ytlite-video-blocked'
+      )
+    ).toBe(true);
   });
 });

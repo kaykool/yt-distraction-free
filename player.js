@@ -245,10 +245,23 @@
     const chat = document.querySelector('ytd-live-chat-frame, #chat');
     if (!chat) return;
     try {
+      let opened = false;
       if (typeof chat.setCollapsedState === 'function') {
         chat.setCollapsedState(false);
+        opened = true;
       } else if (typeof chat.onShowHideChat === 'function') {
-        chat.onShowHideChat();
+        const isClosed =
+          chat.collapsed === true ||
+          chat.hasAttribute('collapsed') ||
+          chat.hasAttribute('hidden') ||
+          chat.hasAttribute('hide-chat-frame');
+        if (isClosed) {
+          chat.onShowHideChat();
+          opened = true;
+        }
+      }
+      if (opened) {
+        window.dispatchEvent(new CustomEvent('ytlite-chat-opened'));
       }
     } catch (_) {}
   });
