@@ -693,11 +693,7 @@
         );
       } catch (_) {}
       updateVideoBtnState(btn);
-      window.dispatchEvent(
-        new CustomEvent('ytlite-set-quality', {
-          detail: { quality: nextBlocked ? '144' : '480' },
-        })
-      );
+      window.dispatchEvent(new CustomEvent('ytlite-set-quality'));
     });
 
     // Ensure we find the top-level container inside rightControls, not an inner child
@@ -752,7 +748,7 @@
     }, 4000);
   }
 
-  function initVideoToggle(watch = isWatchPage()) {
+  function initVideoToggle(watch = isWatchPage(), syncQuality = false) {
     if (!watch) {
       disconnectVideoObserver();
       return;
@@ -760,17 +756,13 @@
     if (!placeVideoToggleButton(watch)) {
       startScopedVideoObserver();
     }
-    const isBlocked = document.documentElement.classList.contains(
-      'ytlite-video-blocked'
-    );
-    window.dispatchEvent(
-      new CustomEvent('ytlite-set-quality', {
-        detail: { quality: isBlocked ? '144' : '480' },
-      })
-    );
+    if (syncQuality) {
+      window.dispatchEvent(new CustomEvent('ytlite-set-quality'));
+    }
   }
 
   function init(state) {
+    const syncQuality = state === true || Boolean(state?.syncQuality);
     const watch = state?.watch !== undefined ? state.watch : isWatchPage();
     if (!watch) {
       clearSidebarTimers();
@@ -785,7 +777,7 @@
       return;
     }
 
-    initVideoToggle(watch);
+    initVideoToggle(watch, syncQuality);
 
     const { isLive, placed } = updateSidebarState({
       watch,
@@ -930,7 +922,7 @@
     }
   }
 
-  init();
+  init(true);
   document.addEventListener('yt-navigate-start', handleNavigateStart);
   document.addEventListener('yt-navigate-finish', handleNavigateFinish);
   document.addEventListener('yt-page-data-updated', handleDataUpdated);

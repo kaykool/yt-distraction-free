@@ -316,6 +316,23 @@ describe('playback quality is never touched while audio-only is off', () => {
       expect(src.includes(method)).toBe(false);
     }
   });
+
+  test('ytlite-set-quality dispatches omit unused detail payloads', () => {
+    const src = read('comments.js');
+    const matches = [...src.matchAll(/new CustomEvent\(['"]ytlite-set-quality['"]([^)]*)\)/g)];
+    expect(matches.length).toBeGreaterThan(0);
+    for (const m of matches) {
+      expect(m[1].trim()).toBe('');
+    }
+  });
+
+  test('Audio-Only Mode pairs content-visibility: hidden with visibility: hidden on <video>', () => {
+    const css = read('hide.css').replace(/\/\*[\s\S]*?\*\//g, '');
+    const block = css.split('}').find((b) => b.includes('html.ytlite-video-blocked') && b.includes('video'));
+    expect(block).toBeDefined();
+    expect(block).toContain('content-visibility: hidden !important');
+    expect(block).toContain('visibility: hidden !important');
+  });
 });
 
 describe('continuation and legacy-cleanup scoping', () => {
