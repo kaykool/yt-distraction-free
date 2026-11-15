@@ -97,27 +97,42 @@ describe('player.js: audio-only quality control', () => {
   });
 });
 
-describe('player.js: click bridge', () => {
-  test('clicking the toggle re-applies quality from localStorage', () => {
+describe('player.js: single quality sync & navigation timer hygiene', () => {
+  test('does not attach a duplicate capture-phase click timer on .ytlite-video-toggle-btn', () => {
     const { env, parts, qualityCalls } = bootPlayer();
     const btn = env.document.createElement('button');
     btn.className = 'ytlite-video-toggle-btn';
     parts.rightControls.appendChild(btn);
 
-    // Simulate comments.js writing the new state, then the click bubbling.
     env.localStorage.setItem('ytlite-block-video', 'true');
     btn.dispatchEvent(new env.ctx.Event('click', { bubbles: true }));
-    expect(qualityCalls.length).toBe(0); // read after setTimeout(0)
-    env.advance(1);
+    env.advance(10);
+    expect(qualityCalls).toEqual([]);
+  });
+
+  test('yt-navigate-start cancels a pending yt-navigate-finish quality sync', () => {
+    const { env, qualityCalls } = bootPlayer({ 'ytlite-block-video': 'true' });
+    env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
+    env.advance(300);
+    env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-start'));
+    env.advance(700);
+    expect(qualityCalls).toEqual([]);
+  });
+
+  test('rapid duplicate yt-navigate-finish events coalesce to a single quality sync', () => {
+    const { env, qualityCalls } = bootPlayer({ 'ytlite-block-video': 'true' });
+    env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
+    env.advance(200);
+    env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
+    env.advance(700);
     expect(qualityCalls).toEqual([['range', 'tiny', 'tiny']]);
   });
 
-  test('clicks on unrelated controls are ignored', () => {
-    const { env, parts, qualityCalls } = bootPlayer();
-    parts.rightControls.dispatchEvent(
-      new env.ctx.Event('click', { bubbles: true })
-    );
-    env.advance(10);
+  test('SPA navigation to a non-watch page does not touch quality', () => {
+    const { env, qualityCalls } = bootPlayer({ 'ytlite-block-video': 'true' });
+    env.navigate('https://www.youtube.com/feed/subscriptions');
+    env.window.dispatchEvent(new env.ctx.CustomEvent('yt-navigate-finish'));
+    env.advance(700);
     expect(qualityCalls).toEqual([]);
   });
 });

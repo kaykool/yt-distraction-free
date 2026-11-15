@@ -220,15 +220,21 @@ describe('helpers.js: dual-world execution & realistic SPA payloads', () => {
     // Toggle AudioOnly on and off via the ISOLATED button -> MAIN player.js clamps & restores.
     const toggle = doc.querySelector('.ytlite-video-toggle-btn');
     expect(toggle).not.toBeNull();
+    expect(toggle.tagName).toBe('BUTTON');
+    expect(toggle.type).toBe('button');
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
     toggle.click();
     env.advance(10);
     expect(env.localStorage.getItem('ytlite-block-video')).toBe('true');
-    expect(qualityCalls[0]).toEqual(['range', 'tiny', 'tiny']);
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    expect(qualityCalls).toEqual([['range', 'tiny', 'tiny']]);
 
     toggle.click();
     env.advance(10);
     expect(env.localStorage.getItem('ytlite-block-video')).toBe('false');
-    expect(qualityCalls[qualityCalls.length - 1]).toEqual(['range', 'hd1080', 'hd1080']);
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    expect(qualityCalls).toEqual([['range', 'tiny', 'tiny'], ['range', 'hd1080', 'hd1080']]);
 
     // Show chat button in ISOLATED triggers ytlite-open-chat -> MAIN invokes setCollapsedState(false).
     const showChat = doc.querySelector('.ytlite-comments-btn');
@@ -268,5 +274,67 @@ describe('helpers.js: dual-world execution & realistic SPA payloads', () => {
     expect(liveFinish.response.response.contents.twoColumnWatchNextResults.conversationBar.liveChatRenderer).toEqual({});
 
     expect(spaPageDataUpdated()).toEqual({ pageType: 'watch' });
+  });
+
+  test('AudioOnly rapid toggling calls setPlaybackQualityRange once per toggle with no stale timers', () => {
+    const { env, doc, parts, qualityCalls } = bootDualWorld({
+      href: 'https://www.youtube.com/watch?v=vid1',
+    });
+    parts.moviePlayer.getPlaybackQuality = () => 'hd1080';
+
+    const toggle = doc.querySelector('.ytlite-video-toggle-btn');
+    toggle.click();
+    toggle.click();
+    toggle.click();
+    env.advance(50);
+
+    expect(qualityCalls).toEqual([
+      ['range', 'tiny', 'tiny'],
+      ['range', 'hd1080', 'hd1080'],
+      ['range', 'tiny', 'tiny'],
+    ]);
+    expect(env.localStorage.getItem('ytlite-block-video')).toBe('true');
+    expect(env.localStorage.getItem('ytlite-prev-quality')).toBe('hd1080');
+  });
+
+  test('SPA navigation triggers at most a single quality sync when AudioOnly is on and zero when off', () => {
+    const { env, doc, parts, qualityCalls, navigate, advance } = bootDualWorld({
+      href: 'https://www.youtube.com/watch?v=vid1',
+      storage: { 'ytlite-block-video': 'true' },
+    });
+    parts.moviePlayer.getPlaybackQuality = () => 'hd720';
+    expect(qualityCalls).toEqual([['range', 'tiny', 'tiny']]);
+
+    qualityCalls.length = 0;
+    dispatch(env, env.document, 'yt-navigate-start', spaNavigateStart('/watch?v=vid2'));
+    navigate('https://www.youtube.com/watch?v=vid2');
+    dispatch(env, env.document, 'yt-navigate-finish', spaNavigateFinish());
+    advance(700);
+    expect(qualityCalls).toEqual([['range', 'tiny', 'tiny']]);
+    expect(env.localStorage.getItem('ytlite-prev-quality')).toBe('hd720');
+
+    // Toggle AudioOnly off, then navigate again: no quality calls during SPA nav.
+    doc.querySelector('.ytlite-video-toggle-btn').click();
+    expect(qualityCalls).toEqual([['range', 'tiny', 'tiny'], ['range', 'hd720', 'hd720']]);
+
+    qualityCalls.length = 0;
+    dispatch(env, env.document, 'yt-navigate-start', spaNavigateStart('/watch?v=vid3'));
+    navigate('https://www.youtube.com/watch?v=vid3');
+    dispatch(env, env.document, 'yt-navigate-finish', spaNavigateFinish());
+    advance(700);
+    expect(qualityCalls).toEqual([]);
+  });
+
+  test('comments.js emits ytlite-set-quality without unused detail payloads', () => {
+    const details = [];
+    const { doc, isolated } = bootDualWorld({
+      href: 'https://www.youtube.com/watch?v=vid1',
+      mutate: ({ isolated: iso }) => {
+        iso.window.addEventListener('ytlite-set-quality', (e) => details.push(e.detail));
+      },
+    });
+    doc.querySelector('.ytlite-video-toggle-btn').click();
+    expect(details).toEqual([null, null]);
+    expect(isolated.document.documentElement.classList.contains('ytlite-video-blocked')).toBe(true);
   });
 });

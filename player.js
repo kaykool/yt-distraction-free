@@ -235,8 +235,8 @@
     navTimers.push(setTimeout(publishLiveState, 2000));
   }
 
-  // Read shared localStorage instead of CustomEvent.detail: detail does not
-  // survive the ISOLATED -> MAIN world boundary and arrives null.
+  // Single click-time synchronization path: comments.js writes localStorage and
+  // dispatches ytlite-set-quality across worlds (CustomEvent.detail does not cross).
   window.addEventListener('ytlite-set-quality', syncQuality);
 
   // Live-chat control needs the custom element's prototype methods, which are only
@@ -252,23 +252,6 @@
       }
     } catch (_) {}
   });
-
-  // Click bridge: the AudioOnly toggle button is created by comments.js in the ISOLATED
-  // world. Catch its clicks here in the MAIN world so the quality change does
-  // not depend on cross-world CustomEvent delivery. Capture phase runs before
-  // the button handler; setTimeout(0) reads localStorage after it is written.
-  document.addEventListener(
-    'click',
-    (e) => {
-      const btn =
-        e.target && typeof e.target.closest === 'function'
-          ? e.target.closest('.ytlite-video-toggle-btn')
-          : null;
-      if (!btn) return;
-      setTimeout(syncQuality, 0);
-    },
-    true
-  );
 
   // A stale published flag or pending timer must never outlive the video it describes.
   window.addEventListener('yt-navigate-start', () => {

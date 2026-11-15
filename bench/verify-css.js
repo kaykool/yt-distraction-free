@@ -304,7 +304,11 @@ const CHECKS = [
 
       const isVideoHidden = (el = video) => {
         const vs = getComputedStyle(el);
-        return vs.visibility === 'hidden' || vs.display === 'none';
+        return vs.contentVisibility === 'hidden' || vs.visibility === 'hidden' || vs.display === 'none';
+      };
+      const isVideoSuppressed = (el = video) => {
+        const vs = getComputedStyle(el);
+        return vs.contentVisibility === 'hidden' && vs.visibility === 'hidden';
       };
       // If headless YouTube stays in unstarted-mode and hides <video> itself, drive the
       // '#movie_player video' selector with a visible probe <video> so the hide.css
@@ -314,6 +318,7 @@ const CHECKS = [
         ? video
         : (() => {
             probe = document.createElement('video');
+            probe.style.contentVisibility = 'visible';
             probe.style.visibility = 'visible';
             probe.style.display = 'block';
             (mp || video.parentElement).appendChild(probe);
@@ -327,6 +332,7 @@ const CHECKS = [
       if (origSingle) mp.setPlaybackQuality = function(...args) { calls.push(['single', ...args]); return origSingle.apply(this, args); };
 
       try {
+        const semanticBtn = btn.tagName === 'BUTTON' && btn.type === 'button' && btn.hasAttribute('aria-pressed');
         const visibleInitially = !isVideoHidden(target);
         btn.click();
         await new Promise((r) => setTimeout(r, 60));
@@ -334,9 +340,10 @@ const CHECKS = [
         const blockedOn = html.classList.contains('ytlite-video-blocked');
         const pressedOn = btn.getAttribute('aria-pressed') === 'true' && btn.classList.contains('ytlite-ao');
         const lsOn = localStorage.getItem('ytlite-block-video') === 'true';
-        const hiddenOn = isVideoHidden(target);
+        const hiddenOn = isVideoSuppressed(target);
         const prevSaved = localStorage.getItem('ytlite-prev-quality');
-        const qualityTiny = !mp || (!origRange && !origSingle) || onCalls.some((c) => c[1] === 'tiny');
+        const hasQualityApi = Boolean(mp && (origRange || origSingle));
+        const qualityTiny = !hasQualityApi || (onCalls.length === 1 && onCalls[0][1] === 'tiny');
 
         btn.click();
         await new Promise((r) => setTimeout(r, 60));
@@ -346,13 +353,13 @@ const CHECKS = [
         const lsOff = localStorage.getItem('ytlite-block-video') === 'false';
         const visibleAfter = !isVideoHidden(target);
         const prevCleared = localStorage.getItem('ytlite-prev-quality') === null;
-        const qualityRestored = !prevSaved || offCalls.some((c) => c[1] === prevSaved);
+        const qualityRestored = !hasQualityApi || (prevSaved ? (offCalls.length === 1 && offCalls[0][1] === prevSaved) : offCalls.length === 0);
 
-        const ok = visibleInitially && blockedOn && pressedOn && lsOn && hiddenOn && qualityTiny &&
+        const ok = semanticBtn && visibleInitially && blockedOn && pressedOn && lsOn && hiddenOn && qualityTiny &&
           blockedOff && pressedOff && lsOff && visibleAfter && prevCleared && qualityRestored;
         return {
           ok,
-          detail: 'hiddenOn=' + hiddenOn + ' visibleAfter=' + visibleAfter + ' tinyCalls=' + onCalls.length + ' prevSaved=' + prevSaved + ' restored=' + qualityRestored + (probe ? ' (probe)' : ''),
+          detail: 'hiddenOn=' + hiddenOn + ' visibleAfter=' + visibleAfter + ' tinyCalls=' + onCalls.length + ' prevSaved=' + prevSaved + ' restoreCalls=' + offCalls.length + ' restored=' + qualityRestored + (probe ? ' (probe)' : ''),
         };
       } finally {
         if (probe) probe.remove();

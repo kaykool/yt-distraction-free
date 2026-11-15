@@ -166,8 +166,8 @@
     );
   }
 
-  function isSidebarNeeded(isLive = isLiveVideo()) {
-    if (!isWatchPage()) return false;
+  function isSidebarNeeded(watch = isWatchPage(), isLive = isLiveVideo()) {
+    if (!watch) return false;
 
     // The sidebar only earns its space when it has content to show. A live video
     // with no chat would otherwise reserve ~400px of column that hide.css empties
@@ -231,49 +231,129 @@
     return false;
   }
 
-  function updateSidebarState() {
+  function updateSidebarState(state) {
+    const watch = state?.watch !== undefined ? state.watch : isWatchPage();
+    if (!watch) {
+      document.documentElement.classList.remove(
+        'ytlite-live',
+        'ytlite-sidebar-active'
+      );
+      removeExistingButton();
+      return { watch: false, isLive: false, needSidebar: false, placed: false };
+    }
+
     const wasLive = document.documentElement.classList.contains('ytlite-live');
-    const isLive = isLiveVideo();
+    const isLive = state?.isLive !== undefined ? state.isLive : isLiveVideo();
     if (isLive) {
       document.documentElement.classList.add('ytlite-live');
       document.documentElement.classList.remove('ytlite-comments-hide');
       disconnectObserver();
     } else {
       document.documentElement.classList.remove('ytlite-live');
-      if (wasLive && isWatchPage()) {
+      if (wasLive) {
         document.documentElement.classList.add('ytlite-comments-hide');
       }
     }
 
-    const needSidebar = isSidebarNeeded(isLive);
+    const needSidebar = isSidebarNeeded(watch, isLive);
+    let placed = false;
     if (needSidebar) {
       document.documentElement.classList.add('ytlite-sidebar-active');
       if (isLive) {
         removeExistingButton();
-      } else if (isWatchPage()) {
-        place();
+      } else {
+        placed = place({ watch, isLive });
       }
     } else {
       document.documentElement.classList.remove('ytlite-sidebar-active');
-      if (isWatchPage()) {
-        place();
-      }
+      placed = place({ watch, isLive });
     }
+    return { watch, isLive, needSidebar, placed };
   }
 
+  const PANEL_OR_CHAT_SELECTOR =
+    'ytd-engagement-panel-section-list-renderer, #panels, ytd-live-chat-frame, #chat';
   let sidebarUpdateTimers = [];
+  let panelObserver = null;
+  let panelObserverSafetyTimer = null;
+
   function clearSidebarTimers() {
     sidebarUpdateTimers.forEach(clearTimeout);
     sidebarUpdateTimers = [];
   }
 
+  function disconnectPanelObserver() {
+    if (panelObserver) {
+      panelObserver.disconnect();
+      panelObserver = null;
+    }
+    if (panelObserverSafetyTimer) {
+      clearTimeout(panelObserverSafetyTimer);
+      panelObserverSafetyTimer = null;
+    }
+  }
+
+  function observePanelOrChatTransition(target) {
+    disconnectPanelObserver();
+    if (!isWatchPage() || !target || !target.isConnected) return;
+
+    const options =
+      target.id === 'panels'
+        ? { childList: true, attributes: true, subtree: false }
+        : {
+            attributes: true,
+            attributeFilter: [
+              'visibility',
+              'hidden',
+              'opened',
+              'expanded',
+              'is-expanded',
+              'collapsed',
+              'hide-chat-frame',
+            ],
+            subtree: false,
+          };
+
+    panelObserver = new MutationObserver(() => {
+      disconnectPanelObserver();
+      clearSidebarTimers();
+      updateSidebarState();
+    });
+    panelObserver.observe(target, options);
+
+    panelObserverSafetyTimer = setTimeout(() => {
+      disconnectPanelObserver();
+    }, 600);
+  }
+
   function scheduleSidebarUpdate() {
     if (!isWatchPage()) return;
-    // Coalesce input bursts: drop the synchronous pass (6-8 DOM queries per click/keypress);
-    // the 150/600ms timers below cover the settled state.
     clearSidebarTimers();
     sidebarUpdateTimers.push(setTimeout(updateSidebarState, 150));
     sidebarUpdateTimers.push(setTimeout(updateSidebarState, 600));
+  }
+
+  function handlePanelLifecycleEvent(e) {
+    if (!isWatchPage()) return;
+    const target = e?.target;
+    const panelOrChat =
+      target && typeof target.closest === 'function'
+        ? target.closest(PANEL_OR_CHAT_SELECTOR)
+        : null;
+    if (panelOrChat) observePanelOrChatTransition(panelOrChat);
+    scheduleSidebarUpdate();
+  }
+
+  function handlePanelAction(e) {
+    if (!isWatchPage()) return;
+    const target = e?.target;
+    const panelOrChat =
+      target && typeof target.closest === 'function'
+        ? target.closest(PANEL_OR_CHAT_SELECTOR)
+        : null;
+    if (!panelOrChat) return;
+    observePanelOrChatTransition(panelOrChat);
+    scheduleSidebarUpdate();
   }
 
   function getUrlFromEvent(e) {
@@ -416,16 +496,17 @@
 
   let isPlacing = false;
 
-  function place() {
+  function place(state) {
     if (isPlacing) return false;
-    if (!isWatchPage()) {
+    const watch = state?.watch !== undefined ? state.watch : isWatchPage();
+    if (!watch) {
       removeExistingButton();
       disconnectObserver();
       return false;
     }
 
     const isLive =
-      isLiveVideo() ||
+      (state?.isLive !== undefined ? state.isLive : isLiveVideo()) ||
       document.documentElement.classList.contains('ytlite-live');
     if (isLive) {
       if (
@@ -538,6 +619,26 @@
       return;
     }
 
+    // Scope observer strictly to watch/app-shell containers with subtree: false.
+    // This completely ignores internal player mutations (buffering, timecode, subtitles).
+    const targetSelectors = [
+      '#below',
+      '#primary-inner',
+      '#primary',
+      'ytd-watch-flexy, ytd-watch-grid',
+      'ytd-page-manager, #page-manager',
+      'ytd-app',
+    ];
+    let target = null;
+    for (const sel of targetSelectors) {
+      const candidate = document.querySelector(sel);
+      if (candidate && candidate.isConnected) {
+        target = candidate;
+        break;
+      }
+    }
+    if (!target) return;
+
     observer = new MutationObserver(() => {
       if (
         !isWatchPage() ||
@@ -555,25 +656,7 @@
       }
     });
 
-    // Scope observer strictly to container elements with subtree: false
-    // This completely ignores internal player mutations (buffering, timecode, subtitles)
-    const below = document.getElementById('below');
-    const primaryInner = document.getElementById('primary-inner');
-    const primary = document.getElementById('primary');
-    const watchFlexy = document.querySelector(
-      'ytd-watch-flexy, ytd-watch-grid'
-    );
-
-    const target =
-      (below?.isConnected ? below : null) ||
-      (primaryInner?.isConnected ? primaryInner : null) ||
-      (primary?.isConnected ? primary : null) ||
-      (watchFlexy?.isConnected ? watchFlexy : null) ||
-      document.body;
-
-    if (target) {
-      observer.observe(target, { childList: true, subtree: false });
-    }
+    observer.observe(target, { childList: true, subtree: false });
 
     // Safety timeout: never leak observer into video playback
     observerSafetyTimer = setTimeout(() => {
@@ -618,8 +701,8 @@
     btn.classList.toggle('ytlite-ao', isBlocked);
   }
 
-  function placeVideoToggleButton() {
-    if (!isWatchPage()) {
+  function placeVideoToggleButton(watch = isWatchPage()) {
+    if (!watch) {
       disconnectVideoObserver();
       return false;
     }
@@ -660,11 +743,7 @@
         );
       } catch (_) {}
       updateVideoBtnState(btn);
-      window.dispatchEvent(
-        new CustomEvent('ytlite-set-quality', {
-          detail: { quality: nextBlocked ? '144' : '480' },
-        })
-      );
+      window.dispatchEvent(new CustomEvent('ytlite-set-quality'));
     });
 
     // Ensure we find the top-level container inside rightControls, not an inner child
@@ -687,16 +766,14 @@
     if (!isWatchPage()) return;
     if (videoToggleBtn && videoToggleBtn.isConnected) return;
 
-    // Query the list in order. A single querySelector would return #primary-inner
-    // (an ancestor of the player, so first in document order) and observe the
-    // whole primary column on every mutation instead of the player.
+    // Query the player container list in order from narrowest to widest without
+    // falling back to #primary-inner, which would observe comment/metadata mutations.
     const targetSelectors = [
       '.html5-video-player',
       '#movie_player',
       '#ytd-player',
       '#player',
       '#player-container-outer',
-      '#primary-inner',
     ];
     let target = null;
     for (const sel of targetSelectors) {
@@ -721,42 +798,44 @@
     }, 4000);
   }
 
-  function initVideoToggle() {
-    if (!isWatchPage()) {
+  function initVideoToggle(watch = isWatchPage(), syncQuality = false) {
+    if (!watch) {
       disconnectVideoObserver();
       return;
     }
-    if (!placeVideoToggleButton()) {
+    if (!placeVideoToggleButton(watch)) {
       startScopedVideoObserver();
     }
-    const isBlocked = document.documentElement.classList.contains(
-      'ytlite-video-blocked'
-    );
-    window.dispatchEvent(
-      new CustomEvent('ytlite-set-quality', {
-        detail: { quality: isBlocked ? '144' : '480' },
-      })
-    );
+    if (syncQuality) {
+      window.dispatchEvent(new CustomEvent('ytlite-set-quality'));
+    }
   }
 
-  function init() {
-    updateSidebarState();
-    if (!isWatchPage()) {
+  function init(state) {
+    const syncQuality = state === true || Boolean(state?.syncQuality);
+    const watch = state?.watch !== undefined ? state.watch : isWatchPage();
+    if (!watch) {
       clearSidebarTimers();
       disconnectObserver();
       disconnectVideoObserver();
+      disconnectPanelObserver();
       removeExistingButton();
-      document.documentElement.classList.remove('ytlite-sidebar-active');
-      document.documentElement.classList.remove('ytlite-live');
+      document.documentElement.classList.remove(
+        'ytlite-sidebar-active',
+        'ytlite-live'
+      );
       return;
     }
 
-    initVideoToggle();
+    initVideoToggle(watch, syncQuality);
 
-    const isLive =
-      isLiveVideo() ||
-      document.documentElement.classList.contains('ytlite-live');
-    if (isLive && !isLiveChatClosed()) {
+    const { isLive, placed } = updateSidebarState({
+      watch,
+      isLive: state?.isLive,
+    });
+    const liveActive =
+      isLive || document.documentElement.classList.contains('ytlite-live');
+    if (liveActive && !isLiveChatClosed()) {
       clearSidebarTimers();
       disconnectObserver();
       removeExistingButton();
@@ -765,19 +844,19 @@
 
     // Catch deferred custom element hydration on direct cold watch page loads
     clearSidebarTimers();
-    sidebarUpdateTimers.push(setTimeout(updateSidebarState, 300));
-    sidebarUpdateTimers.push(setTimeout(updateSidebarState, 1200));
-    sidebarUpdateTimers.push(setTimeout(updateSidebarState, 3000));
+    sidebarUpdateTimers.push(setTimeout(() => updateSidebarState(), 300));
+    sidebarUpdateTimers.push(setTimeout(() => updateSidebarState(), 1200));
+    sidebarUpdateTimers.push(setTimeout(() => updateSidebarState(), 3000));
 
     if (
-      !isLive &&
+      !liveActive &&
       !document.documentElement.classList.contains('ytlite-comments-hide')
     ) {
       disconnectObserver();
       return;
     }
 
-    if (!place()) {
+    if (!placed) {
       startScopedObserver();
     } else {
       disconnectObserver();
@@ -786,6 +865,7 @@
 
   function handleNavigateStart(e) {
     clearSidebarTimers();
+    disconnectPanelObserver();
     cachedVideoId = null;
     cachedIsLive = false;
     cachedDefinitive = false;
@@ -847,6 +927,7 @@
 
   function handleNavigateFinish(e) {
     clearSidebarTimers();
+    disconnectPanelObserver();
     const signal = extractEventLiveSignal(e);
     const videoId = videoIdFromUrl();
     if (videoId && signal) {
@@ -858,28 +939,26 @@
       };
       cacheLive(videoId, signal.isLive, true);
     }
-    if (signal?.isLive) {
-      document.documentElement.classList.add('ytlite-live');
-      document.documentElement.classList.add('ytlite-sidebar-active');
+
+    const watch = isWatchPage();
+    if (!watch) {
       document.documentElement.classList.remove('ytlite-comments-hide');
-    } else if (signal && !signal.isLive) {
-      document.documentElement.classList.remove('ytlite-live');
+      init({ watch: false });
+      return;
     }
 
-    updateSidebarState();
-    if (isWatchPage()) {
-      if (!isLiveVideo()) {
-        document.documentElement.classList.add('ytlite-comments-hide');
-      }
-      removeExistingButton();
-      init();
-    } else {
+    const isLive = signal ? signal.isLive : isLiveVideo();
+    if (isLive) {
+      document.documentElement.classList.add(
+        'ytlite-live',
+        'ytlite-sidebar-active'
+      );
       document.documentElement.classList.remove('ytlite-comments-hide');
+    } else {
       document.documentElement.classList.remove('ytlite-live');
-      document.documentElement.classList.remove('ytlite-sidebar-active');
-      disconnectObserver();
-      removeExistingButton();
+      document.documentElement.classList.add('ytlite-comments-hide');
     }
+    init({ watch: true, isLive });
   }
 
   function handleDataUpdated(e) {
@@ -893,13 +972,11 @@
       };
       cacheLive(videoId, signal.isLive, true);
     }
-    updateSidebarState();
-    if (isWatchPage()) {
-      placeVideoToggleButton();
-    }
+    const { watch, isLive, placed } = updateSidebarState();
+    if (!watch) return;
+    placeVideoToggleButton(watch);
     if (
-      !isWatchPage() ||
-      isLiveVideo() ||
+      isLive ||
       !document.documentElement.classList.contains('ytlite-comments-hide')
     ) {
       return;
@@ -907,50 +984,46 @@
     if (buttonContainer && buttonContainer.isConnected) {
       return;
     }
-    if (!place()) {
+    if (!placed) {
       startScopedObserver();
     } else {
       disconnectObserver();
     }
   }
 
-  init();
+  init(true);
   document.addEventListener('yt-navigate-start', handleNavigateStart);
   document.addEventListener('yt-navigate-finish', handleNavigateFinish);
   document.addEventListener('yt-page-data-updated', handleDataUpdated);
   window.addEventListener('ytlite-live-state', () => {
-    if (!isWatchPage()) return;
-    updateSidebarState();
+    const { watch, isLive, placed } = updateSidebarState();
+    if (!watch) return;
     if (
-      !isLiveVideo() &&
+      !isLive &&
       document.documentElement.classList.contains('ytlite-comments-hide') &&
-      !place()
+      !placed
     ) {
       startScopedObserver();
     }
   });
   window.addEventListener('popstate', handleNavigateFinish);
-  document.addEventListener('click', scheduleSidebarUpdate, { passive: true });
-  document.addEventListener(
-    'keyup',
-    (e) => {
-      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
-        scheduleSidebarUpdate();
-      }
-    },
-    { passive: true }
-  );
   document.addEventListener(
     'yt-engagement-panel-visibility-changed',
-    scheduleSidebarUpdate,
+    handlePanelLifecycleEvent,
     { passive: true }
   );
-  document.addEventListener('yt-visibility-refresh', scheduleSidebarUpdate, {
-    passive: true,
-  });
+  document.addEventListener(
+    'yt-visibility-refresh',
+    handlePanelLifecycleEvent,
+    { passive: true }
+  );
   document.addEventListener(
     'yt-chat-collapsed-changed',
-    scheduleSidebarUpdate,
+    handlePanelLifecycleEvent,
     { passive: true }
   );
+  document.addEventListener('yt-action', handlePanelAction, {
+    capture: true,
+    passive: true,
+  });
 })();
